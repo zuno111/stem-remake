@@ -11,6 +11,7 @@ for pkg in [
     "demucs", "torch", "torchaudio", "julius", "openunmix",
     "dora", "lameenc", "einops", "scipy", "audioread",
     "soxr", "numba", "llvmlite", "sklearn", "flask", "waitress",
+    "basic_pitch", "onnxruntime", "mir_eval", "resampy",
 ]:
     try:
         d, b, h = collect_all(pkg)

@@ -66,7 +66,8 @@ def _render_melodic(name, stem_path, notes, policy, sr, dur, instrument_map):
     im = (instrument_map or {}).get(name)
     if im and im.get("path"):
         try:
-            audio = vst.render_notes_vst(notes, sr, dur, im["path"], im.get("preset"), is_drum=False)
+            audio = vst.render_notes_vst(notes, sr, dur, im["path"], im.get("preset"),
+                                         is_drum=False, program=im.get("program"))
             return audio, "vst"
         except Exception as e:
             print(f"[{name}] VST 실패 → 합성 폴백: {e}")
@@ -87,8 +88,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
 
     policy = dict(PRESETS.get(preset, PRESETS["instrumental"]))
     poly = _poly_available()
-    if policy.get("other") == "clean_keep" and poly:
-        policy["other"] = "retrack_poly"
+    # 기타외는 자동 믹스에선 정제 유지(합성보다 품질 좋음). 다성 전사는 내보내기/VST에만 사용.
 
     _progress(progress_cb, 5, f"스템 분리 (backend={backend}, preset={preset})")
     stem_paths, sr = sep.separate(input_path, stems_dir, backend=backend)
@@ -122,7 +122,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             # 드럼은 GM 노트로 변환해 VST에 전달
             dn = [{"start": h["time"], "end": h["time"] + 0.1,
                    "midi": export_daw._GM_DRUM.get(h["drum"], 38), "vel": h["vel"]} for h in drum_hits]
-            produced["drums"] = vst.render_notes_vst(dn, sr, dur, im_d["path"], im_d.get("preset"), is_drum=True)
+            produced["drums"] = vst.render_notes_vst(dn, sr, dur, im_d["path"], im_d.get("preset"),
+                                                     is_drum=True, program=im_d.get("program"))
             report["vst_used"]["drums"] = "vst"
         except Exception as e:
             print(f"[drums] VST 실패 → 합성 폴백: {e}")
@@ -137,12 +138,16 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     need_other_notes = daw_export or bool((instrument_map or {}).get("other")) or pol_other in ("retrack", "retrack_poly")
     other_notes = None
     if need_other_notes:
-        _progress(progress_cb, 70, "기타외 전사")
-        if pol_other == "retrack_poly":
+        yo = _load(stem_paths["other"], sr)
+        if poly:
+            _progress(progress_cb, 70, "기타외 다성 전사 (basic-pitch)")
             from . import transcribe_poly as trp
-            other_notes = trp.transcribe_polyphonic(_load(stem_paths["other"], sr), sr)
+            other_notes = trp.transcribe_polyphonic(yo, sr)
+            report["other_transcribe"] = "poly"
         else:
-            other_notes = tr.transcribe_mono(_load(stem_paths["other"], sr), sr, fmin=80, fmax=2000)
+            _progress(progress_cb, 70, "기타외 전사 (단선율)")
+            other_notes = tr.transcribe_mono(yo, sr, fmin=80, fmax=2000)
+            report["other_transcribe"] = "mono"
         parts["other"] = other_notes
     if pol_other != "skip":
         _progress(progress_cb, 78, "기타외 렌더")

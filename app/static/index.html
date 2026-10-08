@@ -55,7 +55,10 @@
   .vrow{display:flex;align-items:center;gap:10px;margin-top:10px}
   .vlab{width:56px;color:var(--sub);font-size:13px;font-weight:700}
   .vrow input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);
-              padding:8px 10px;font-size:13px;font-family:var(--font)}
+              padding:8px 10px;font-size:13px;font-family:var(--font);min-width:0}
+  .vrow input.narrow{flex:0 0 150px}
+  .vrow input.prog{flex:0 0 72px}
+  @media(max-width:620px){.vrow{flex-wrap:wrap}.vrow input.narrow,.vrow input.prog{flex:1}}
 </style>
 </head>
 <body>
@@ -84,10 +87,10 @@
     </div>
     <details class="vst">
       <summary>VST 악기 모드 (내 플러그인으로 재연주)</summary>
-      <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 기본 합성 악기)"></div>
-      <div class="vrow"><span class="vlab">드럼</span><input id="vst_drums" placeholder=".vst3 경로"></div>
-      <div class="vrow"><span class="vlab">기타외</span><input id="vst_other" placeholder=".vst3 경로"></div>
-      <div class="note">예) Windows: C:\Program Files\Common Files\VST3\HALion Sonic.vst3 · Mac: /Library/Audio/Plug-Ins/VST3 또는 Components(AU). 비운 파트는 기본 합성 악기로 렌더됩니다. 로직 내장 악기는 외부 호출이 안 되므로 서드파티 플러그인만 가능합니다.</div>
+      <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 기본 합성)"><input id="pre_bass" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_bass" class="prog" type="number" placeholder="패치#"></div>
+      <div class="vrow"><span class="vlab">드럼</span><input id="vst_drums" placeholder=".vst3 경로"><input id="pre_drums" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_drums" class="prog" type="number" placeholder="패치#"></div>
+      <div class="vrow"><span class="vlab">기타외</span><input id="vst_other" placeholder=".vst3 경로"><input id="pre_other" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_other" class="prog" type="number" placeholder="패치#"></div>
+      <div class="note">예) Windows: C:\Program Files\Common Files\VST3\HALion Sonic.vst3 · Mac: /Library/Audio/Plug-Ins/VST3 또는 Components(AU). 패치#는 멀티팀브럴 악기(HALion 등)에서 음색 번호 선택용(0부터), 프리셋 경로는 .vstpreset 등. 비운 파트는 기본 합성으로 렌더됩니다. 로직 내장 악기는 외부 호출 불가.</div>
     </details>
     <div class="row" style="margin-top:14px">
       <button class="btn" id="go" disabled>리메이크 시작</button>
@@ -141,8 +144,16 @@ $("#go").onclick=async()=>{
   const fd=new FormData(); fd.append("file",picked); fd.append("preset",preset);
   fd.append("daw_export", $("#daw").checked ? "true" : "false");
   const imap={};
-  const addv=(part,id)=>{const v=$(id).value.trim(); if(v) imap[part]={path:v};};
-  addv("bass","#vst_bass"); addv("drums","#vst_drums"); addv("other","#vst_other");
+  const addv=(part,pid,prid,pgid)=>{
+    const v=$(pid).value.trim(); if(!v) return;
+    const o={path:v};
+    const pr=$(prid).value.trim(); if(pr) o.preset=pr;
+    const pg=$(pgid).value.trim(); if(pg!=="") o.program=parseInt(pg,10);
+    imap[part]=o;
+  };
+  addv("bass","#vst_bass","#pre_bass","#prg_bass");
+  addv("drums","#vst_drums","#pre_drums","#prg_drums");
+  addv("other","#vst_other","#pre_other","#prg_other");
   if(Object.keys(imap).length) fd.append("instrument_map", JSON.stringify(imap));
   const r=await fetch("/api/process",{method:"POST",body:fd}); const j=await r.json();
   if(j.error){ setProg(0,"오류: "+j.error); $("#go").disabled=false; return; }

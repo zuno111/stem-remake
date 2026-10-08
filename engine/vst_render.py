@@ -25,10 +25,13 @@ def load_instrument(plugin_path, preset_path=None):
     return inst
 
 
-def _notes_to_messages(notes, is_drum=False):
-    """노트 dict 리스트 → mido 메시지(절대 시간 초) 리스트."""
+def _notes_to_messages(notes, is_drum=False, program=None):
+    """노트 dict 리스트 → mido 메시지(절대 시간 초) 리스트. program 지정 시 패치 변경."""
     import mido
     msgs = []
+    ch0 = 9 if is_drum else 0
+    if program is not None and not is_drum:
+        msgs.append(mido.Message("program_change", program=int(program), channel=ch0, time=0.0))
     for n in notes:
         ch = 9 if is_drum else 0
         on = mido.Message("note_on", note=int(n["midi"]), velocity=int(n["vel"]),
@@ -41,13 +44,14 @@ def _notes_to_messages(notes, is_drum=False):
     return msgs
 
 
-def render_notes_vst(notes, sr, duration, plugin_path, preset_path=None, is_drum=False):
+def render_notes_vst(notes, sr, duration, plugin_path, preset_path=None, is_drum=False, program=None):
     """
     전사 노트를 VST/AU 악기로 렌더. (samples,) 모노 float32 반환.
+    program: MIDI 프로그램(패치) 번호. 멀티팀브럴 악기(HALion 등) 음색 선택용.
     실패 시 예외를 올리므로 호출부에서 synth 폴백.
     """
     inst = load_instrument(plugin_path, preset_path)
-    msgs = _notes_to_messages(notes, is_drum=is_drum)
+    msgs = _notes_to_messages(notes, is_drum=is_drum, program=program)
     audio = inst(msgs, duration=float(duration) + 0.5, sample_rate=float(sr))
     audio = np.asarray(audio, dtype=np.float32)
     if audio.ndim == 2:  # (channels, samples) → mono

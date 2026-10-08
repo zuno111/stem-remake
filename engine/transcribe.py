@@ -14,8 +14,10 @@ import librosa
 
 def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08):
     """pYIN 단선율 전사. 베이스/리드 멜로디용."""
+    # fmin에서 두 주기 이상 들어가도록 frame_length 확보(저역 정확도)
+    frame_length = max(2048, int(2 ** np.ceil(np.log2(2.5 * sr / fmin))))
     f0, voiced, _ = librosa.pyin(
-        y, fmin=fmin, fmax=fmax, sr=sr, frame_length=2048, hop_length=256
+        y, fmin=fmin, fmax=fmax, sr=sr, frame_length=frame_length, hop_length=256
     )
     hop = 256
     times = librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop)
