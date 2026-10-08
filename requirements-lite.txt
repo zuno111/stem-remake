@@ -1,0 +1,8 @@
+numpy
+scipy
+soundfile
+librosa
+pedalboard
+pretty_midi
+flask
+waitress

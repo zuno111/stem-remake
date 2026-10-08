@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스템 리메이크</title>
+<style>
+  :root{
+    --bg:#0e0f13; --panel:#15171e; --panel2:#1c1f28; --line:#2a2e3a;
+    --fg:#e8eaf0; --sub:#9aa0ae; --accent:#5b8cff; --accent2:#7c5bff; --ok:#39d98a; --err:#ff5b6e;
+    --font:'Pretendard','Apple SD Gothic Neo','Malgun Gothic','맑은 고딕','Noto Sans KR',
+           -apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;font-style:normal;font-family:var(--font)}
+  body{margin:0;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.5}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 16px 60px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  header .logo{font-weight:800;letter-spacing:-.5px;font-size:22px}
+  header .tag{color:var(--sub);font-size:13px}
+  .lead{color:var(--sub);margin:4px 0 22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:var(--panel2)}
+  .drop .big{font-size:17px;font-weight:700;margin-bottom:6px}
+  .drop .small{color:var(--sub);font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{background:transparent;color:var(--sub);border:0;padding:9px 16px;font-size:14px;font-weight:600;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#fff}
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:11px 20px;font-size:15px;font-weight:700;cursor:pointer}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.ghost{background:var(--panel2);color:var(--fg);border:1px solid var(--line)}
+  .label{color:var(--sub);font-size:13px;margin-right:4px}
+  .bar{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .status{color:var(--sub);font-size:13px;margin-top:8px}
+  .ab{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:620px){.ab{grid-template-columns:1fr}}
+  .player{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .player h4{margin:0 0 10px;font-size:14px;font-weight:700}
+  .player.result h4{color:var(--ok)}
+  audio{width:100%}
+  .meta{display:flex;gap:16px;flex-wrap:wrap;color:var(--sub);font-size:13px;margin-top:4px}
+  .meta b{color:var(--fg);font-weight:700}
+  .stems{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px}
+  .stem{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stem .n{font-size:12px;color:var(--sub);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+  .hidden{display:none}
+  a.dl{color:var(--accent);text-decoration:none;font-size:13px;font-weight:700}
+  .note{color:var(--sub);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">스템 리메이크</div>
+    <div class="tag">STUDIO ig · 음원 분리 → 재연주 → 리믹스</div>
+  </header>
+  <div class="lead">음원을 올리면 스템으로 분리하고, 파트를 다시 연주해 새 버전으로 만듭니다.</div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:14px">
+      <span class="label">모드</span>
+      <div class="seg" id="preset">
+        <button data-v="instrumental" class="on">연주곡</button>
+        <button data-v="vocal">보컬곡</button>
+      </div>
+    </div>
+    <div class="drop" id="drop">
+      <div class="big">음원 파일을 여기에 끌어다 놓기</div>
+      <div class="small">또는 클릭해서 선택 · WAV / MP3 / FLAC / M4A</div>
+      <input type="file" id="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" class="hidden">
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="go" disabled>리메이크 시작</button>
+      <span class="label" id="fname"></span>
+    </div>
+  </div>
+
+  <div class="card hidden" id="progress">
+    <div class="bar"><i id="fill"></i></div>
+    <div class="status" id="statusText">대기</div>
+  </div>
+
+  <div class="card hidden" id="done">
+    <div class="ab">
+      <div class="player"><h4>원본</h4><audio id="aOrig" controls></audio></div>
+      <div class="player result"><h4>리메이크 결과</h4><audio id="aRes" controls></audio>
+        <div style="margin-top:8px"><a class="dl" id="dlRes" download="remake.wav">결과 다운로드</a></div>
+      </div>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div style="margin-top:16px"><span class="label">분리/재연주 스템</span></div>
+    <div class="stems" id="stems"></div>
+    <div class="note" id="backendNote"></div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let preset="instrumental", picked=null, jobId=null, timer=null;
+
+document.querySelectorAll("#preset button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#preset button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); preset=b.dataset.v;
+});
+
+const drop=$("#drop"), file=$("#file");
+drop.onclick=()=>file.click();
+["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",ev=>{ if(ev.dataTransfer.files[0]) setFile(ev.dataTransfer.files[0]); });
+file.onchange=()=>{ if(file.files[0]) setFile(file.files[0]); };
+function setFile(f){ picked=f; $("#fname").textContent=f.name; $("#go").disabled=false; }
+
+$("#go").onclick=async()=>{
+  if(!picked) return;
+  $("#go").disabled=true; $("#done").classList.add("hidden");
+  $("#progress").classList.remove("hidden"); setProg(2,"업로드 중");
+  const fd=new FormData(); fd.append("file",picked); fd.append("preset",preset);
+  const r=await fetch("/api/process",{method:"POST",body:fd}); const j=await r.json();
+  if(j.error){ setProg(0,"오류: "+j.error); $("#go").disabled=false; return; }
+  jobId=j.job_id; timer=setInterval(poll,800);
+};
+
+function setProg(p,m){ $("#fill").style.width=p+"%"; $("#statusText").textContent=m+" ("+p+"%)"; }
+
+async function poll(){
+  const r=await fetch("/api/status/"+jobId); const j=await r.json();
+  setProg(j.pct||0, j.msg||j.status);
+  if(j.status==="done"){ clearInterval(timer); showResult(j); }
+  if(j.status==="error"){ clearInterval(timer); setProg(0,"오류: "+(j.error||"")); $("#go").disabled=false; }
+}
+
+function showResult(j){
+  $("#done").classList.remove("hidden"); $("#go").disabled=false;
+  const u=k=>"/api/file/"+jobId+"/"+k;
+  $("#aOrig").src=u("original"); $("#aRes").src=u("result"); $("#dlRes").href=u("result");
+  const rep=j.report||{};
+  $("#meta").innerHTML=`<span>BPM <b>${rep.bpm??"-"}</b></span>
+    <span>Key <b>${(rep.key||"-")+" "+(rep.mode||"")}</b></span>
+    <span>길이 <b>${rep.duration_sec??"-"}s</b></span>
+    <span>모드 <b>${rep.preset==="vocal"?"보컬곡":"연주곡"}</b></span>`;
+  const stemsBox=$("#stems"); stemsBox.innerHTML="";
+  (j.files||[]).filter(f=>f.includes(":")).forEach(f=>{
+    const [grp,name]=f.split(":");
+    const label=(grp==="retrack"?"재연주 ":"원본 ")+name;
+    const d=document.createElement("div"); d.className="stem";
+    d.innerHTML=`<div class="n">${label}</div><audio controls src="${u(f)}"></audio>`;
+    stemsBox.appendChild(d);
+  });
+  $("#backendNote").textContent = rep.policy ?
+    "처리: 베이스·드럼 재연주, other "+(rep.policy.other==="clean_keep"?"정제 유지":"재연주")+
+    (rep.policy.vocals==="skip"?", 보컬 제외":", 보컬 정제 유지") : "";
+}
+</script>
+</body>
+</html>

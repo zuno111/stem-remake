@@ -1,0 +1,58 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-lite.txt
+          pip install demucs
+          pip install pyinstaller==6.11.1
+
+      - name: Pre-download Demucs model (htdemucs)
+        shell: pwsh
+        env:
+          TORCH_HOME: ${{ github.workspace }}\models
+        run: |
+          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('model sources:', m.sources)"
+          Get-ChildItem -Recurse "${{ github.workspace }}\models" | Select-Object FullName
+
+      - name: Build (PyInstaller)
+        shell: pwsh
+        working-directory: build
+        run: pyinstaller stem_remake.spec --noconfirm --clean
+
+      - name: Smoke import test
+        shell: pwsh
+        working-directory: build/dist/StemRemake
+        run: |
+          # exe가 정상 생성됐는지 확인
+          if (!(Test-Path ".\StemRemake.exe")) { throw "StemRemake.exe 없음" }
+          Write-Host "exe size:" (Get-Item ".\StemRemake.exe").Length
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path build/dist/StemRemake/* -DestinationPath StemRemake-windows.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StemRemake-windows
+          path: StemRemake-windows.zip
+          retention-days: 14

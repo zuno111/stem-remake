@@ -1,0 +1,5 @@
+# 제품 빌드용(샌드박스 외부/GitHub Actions). torch·torchaudio는 CPU 인덱스로 별도 설치.
+-r requirements-lite.txt
+demucs
+# torch, torchaudio  -> pip install ... --index-url https://download.pytorch.org/whl/cpu
+# v2: basic-pitch, onnxruntime  (다성 전사)
