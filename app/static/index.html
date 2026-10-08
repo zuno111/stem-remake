@@ -48,6 +48,14 @@
   .hidden{display:none}
   a.dl{color:var(--accent);text-decoration:none;font-size:13px;font-weight:700}
   .note{color:var(--sub);font-size:12px;margin-top:8px}
+  .chk{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:14px;cursor:pointer}
+  .chk input{width:16px;height:16px}
+  details.vst{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
+  details.vst summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--fg)}
+  .vrow{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .vlab{width:56px;color:var(--sub);font-size:13px;font-weight:700}
+  .vrow input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);
+              padding:8px 10px;font-size:13px;font-family:var(--font)}
 </style>
 </head>
 <body>
@@ -72,6 +80,16 @@
       <input type="file" id="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" class="hidden">
     </div>
     <div class="row" style="margin-top:14px">
+      <label class="chk"><input type="checkbox" id="daw"> DAW 내보내기 (스템 + 파트별 MIDI, 큐베이스·로직에서 마무리)</label>
+    </div>
+    <details class="vst">
+      <summary>VST 악기 모드 (내 플러그인으로 재연주)</summary>
+      <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 기본 합성 악기)"></div>
+      <div class="vrow"><span class="vlab">드럼</span><input id="vst_drums" placeholder=".vst3 경로"></div>
+      <div class="vrow"><span class="vlab">기타외</span><input id="vst_other" placeholder=".vst3 경로"></div>
+      <div class="note">예) Windows: C:\Program Files\Common Files\VST3\HALion Sonic.vst3 · Mac: /Library/Audio/Plug-Ins/VST3 또는 Components(AU). 비운 파트는 기본 합성 악기로 렌더됩니다. 로직 내장 악기는 외부 호출이 안 되므로 서드파티 플러그인만 가능합니다.</div>
+    </details>
+    <div class="row" style="margin-top:14px">
       <button class="btn" id="go" disabled>리메이크 시작</button>
       <span class="label" id="fname"></span>
     </div>
@@ -86,7 +104,10 @@
     <div class="ab">
       <div class="player"><h4>원본</h4><audio id="aOrig" controls></audio></div>
       <div class="player result"><h4>리메이크 결과</h4><audio id="aRes" controls></audio>
-        <div style="margin-top:8px"><a class="dl" id="dlRes" download="remake.wav">결과 다운로드</a></div>
+        <div style="margin-top:8px">
+          <a class="dl" id="dlRes" download="remake.wav">결과 다운로드</a>
+          <a class="dl" id="dlDaw" style="display:none;margin-left:14px" download="daw_package.zip">DAW 패키지 다운로드</a>
+        </div>
       </div>
     </div>
     <div class="meta" id="meta"></div>
@@ -118,6 +139,11 @@ $("#go").onclick=async()=>{
   $("#go").disabled=true; $("#done").classList.add("hidden");
   $("#progress").classList.remove("hidden"); setProg(2,"업로드 중");
   const fd=new FormData(); fd.append("file",picked); fd.append("preset",preset);
+  fd.append("daw_export", $("#daw").checked ? "true" : "false");
+  const imap={};
+  const addv=(part,id)=>{const v=$(id).value.trim(); if(v) imap[part]={path:v};};
+  addv("bass","#vst_bass"); addv("drums","#vst_drums"); addv("other","#vst_other");
+  if(Object.keys(imap).length) fd.append("instrument_map", JSON.stringify(imap));
   const r=await fetch("/api/process",{method:"POST",body:fd}); const j=await r.json();
   if(j.error){ setProg(0,"오류: "+j.error); $("#go").disabled=false; return; }
   jobId=j.job_id; timer=setInterval(poll,800);
@@ -136,6 +162,8 @@ function showResult(j){
   $("#done").classList.remove("hidden"); $("#go").disabled=false;
   const u=k=>"/api/file/"+jobId+"/"+k;
   $("#aOrig").src=u("original"); $("#aRes").src=u("result"); $("#dlRes").href=u("result");
+  $("#dlDaw").style.display = j.daw ? "inline" : "none";
+  if(j.daw) $("#dlDaw").href=u("daw");
   const rep=j.report||{};
   $("#meta").innerHTML=`<span>BPM <b>${rep.bpm??"-"}</b></span>
     <span>Key <b>${(rep.key||"-")+" "+(rep.mode||"")}</b></span>

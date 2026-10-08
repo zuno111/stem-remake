@@ -7,7 +7,7 @@ datas, binaries, hiddenimports = [], [], []
 
 # 무거운 패키지는 데이터·바이너리·서브모듈을 통째로 수집
 for pkg in [
-    "librosa", "soundfile", "pedalboard", "pretty_midi",
+    "librosa", "soundfile", "pedalboard", "pretty_midi", "mido",
     "demucs", "torch", "torchaudio", "julius", "openunmix",
     "dora", "lameenc", "einops", "scipy", "audioread",
     "soxr", "numba", "llvmlite", "sklearn", "flask", "waitress",

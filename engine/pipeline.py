@@ -2,19 +2,21 @@
 """
 전체 파이프라인 오케스트레이터.
 
-업로드 음원 -> 스템 분리 -> 분석 -> 파트별 처리(재연주/정제유지/스킵) -> 재믹스·마스터 -> 결과 wav
+업로드 음원 -> 스템 분리 -> 분석 -> 파트별 전사/렌더 -> 재믹스·마스터 -> 결과 wav
++ (옵션) DAW 내보내기 패키지(스템+MIDI)
 
-프리셋:
-- instrumental(연주곡): 보컬 스킵, 베이스·드럼 재연주, other(폴리포닉) 정제 유지
-- vocal(보컬곡):       보컬 정제 유지, 베이스·드럼 재연주, other 정제 유지
+렌더 우선순위(파트별):
+1. instrument_map에 플러그인이 지정됨 -> VST/AU 악기로 렌더 (모드 3)  [실패 시 2로 폴백]
+2. 정책이 retrack/retrack_poly -> numpy 합성 악기
+3. 정책이 clean_keep -> 분리 스템을 정제해서 유지
+4. 정책이 skip -> 사용 안 함
 
-처리 정책(policy) 값:
-- "retrack"    : 전사 후 악기로 재연주
-- "clean_keep" : 분리된 원 스템을 정제해서 그대로 사용(폴리포닉/보컬)
-- "skip"       : 사용 안 함
+instrument_map 예: {"bass": {"path": "C:/.../HALion.vst3", "preset": None}, "drums": {...}}
+daw_export=True 이면 out_dir/daw_package.zip 생성(큐베이스·로직 등에서 import).
 
 실행:
-    python -m engine.pipeline <input> <out_dir> [--backend auto|demucs|lite] [--preset instrumental|vocal]
+    python -m engine.pipeline <input> <out_dir> [--backend auto|demucs|lite]
+        [--preset instrumental|vocal] [--daw-export]
 """
 import os
 import sys
@@ -28,22 +30,21 @@ from . import analyze as ana
 from . import transcribe as tr
 from . import synth
 from . import master as mst
+from . import vst_render as vst
+from . import export_daw
 
 PRESETS = {
     "instrumental": {"vocals": "skip", "drums": "retrack", "bass": "retrack", "other": "clean_keep"},
     "vocal": {"vocals": "clean_keep", "drums": "retrack", "bass": "retrack", "other": "clean_keep"},
 }
 
-# 제품 빌드에서 basic-pitch(다성 전사)가 있으면 other도 retrack으로 승격
-def _upgrade_policy_if_polyphonic(policy):
+
+def _poly_available():
     try:
         import basic_pitch  # noqa: F401
-        policy = dict(policy)
-        if policy.get("other") == "clean_keep":
-            policy["other"] = "retrack_poly"
-        return policy
+        return True
     except Exception:
-        return policy
+        return False
 
 
 def _load(path, sr):
@@ -60,94 +61,129 @@ def _progress(cb, pct, msg):
             pass
 
 
-def run(input_path, out_dir, backend="auto", preset="instrumental", progress_cb=None):
+def _render_melodic(name, stem_path, notes, policy, sr, dur, instrument_map):
+    """베이스/기타외 렌더. (audio, used_backend)"""
+    im = (instrument_map or {}).get(name)
+    if im and im.get("path"):
+        try:
+            audio = vst.render_notes_vst(notes, sr, dur, im["path"], im.get("preset"), is_drum=False)
+            return audio, "vst"
+        except Exception as e:
+            print(f"[{name}] VST 실패 → 합성 폴백: {e}")
+    if policy in ("retrack", "retrack_poly"):
+        kind = "bass" if name == "bass" else "keys"
+        return synth.render_notes(notes, sr, dur, kind=kind), "synth"
+    # clean_keep
+    y = _load(stem_path, sr)
+    return np.asarray(mst.clean_instrument(y, sr), dtype=np.float32), "clean_keep"
+
+
+def run(input_path, out_dir, backend="auto", preset="instrumental",
+        instrument_map=None, daw_export=False, progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
     retrack_dir = os.path.join(out_dir, "retrack")
     os.makedirs(retrack_dir, exist_ok=True)
 
-    policy = _upgrade_policy_if_polyphonic(PRESETS.get(preset, PRESETS["instrumental"]))
+    policy = dict(PRESETS.get(preset, PRESETS["instrumental"]))
+    poly = _poly_available()
+    if policy.get("other") == "clean_keep" and poly:
+        policy["other"] = "retrack_poly"
 
     _progress(progress_cb, 5, f"스템 분리 (backend={backend}, preset={preset})")
     stem_paths, sr = sep.separate(input_path, stems_dir, backend=backend)
 
-    _progress(progress_cb, 35, "곡 분석 (BPM/키)")
+    _progress(progress_cb, 30, "곡 분석 (BPM/키)")
     report = ana.analyze(input_path, sr=sr)
     dur = report["duration_sec"]
     report["preset"] = preset
     report["policy"] = policy
+    report["vst_used"] = {}
 
-    _progress(progress_cb, 45, f"분석 완료: BPM {report['bpm']}, Key {report['key']} {report['mode']}")
+    _progress(progress_cb, 40, f"분석: BPM {report['bpm']}, Key {report['key']} {report['mode']}")
 
     produced = {}
-    tr_summary = {}
+    parts = {}  # 내보내기용 전사 결과
 
-    # bass
-    if policy.get("bass") == "retrack":
-        _progress(progress_cb, 55, "베이스 전사·재연주")
-        y = _load(stem_paths["bass"], sr)
-        notes = tr.transcribe_mono(y, sr, fmin=41, fmax=400)
-        produced["bass"] = synth.render_notes(notes, sr, dur, kind="bass")
-        tr_summary["bass_notes"] = len(notes)
+    # bass (항상 전사)
+    _progress(progress_cb, 50, "베이스 전사")
+    bass_notes = tr.transcribe_mono(_load(stem_paths["bass"], sr), sr, fmin=41, fmax=400)
+    parts["bass"] = bass_notes
+    produced["bass"], bk = _render_melodic("bass", stem_paths["bass"], bass_notes, policy["bass"], sr, dur, instrument_map)
+    report["vst_used"]["bass"] = bk
 
-    # drums
-    if policy.get("drums") == "retrack":
-        _progress(progress_cb, 65, "드럼 전사·재구성")
-        y = _load(stem_paths["drums"], sr)
-        hits = tr.transcribe_drums(y, sr)
-        produced["drums"] = synth.render_drums(hits, sr, dur)
-        tr_summary["drum_hits"] = len(hits)
+    # drums (항상 전사)
+    _progress(progress_cb, 60, "드럼 전사")
+    drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
+    parts["drums"] = drum_hits
+    im_d = (instrument_map or {}).get("drums")
+    if im_d and im_d.get("path"):
+        try:
+            # 드럼은 GM 노트로 변환해 VST에 전달
+            dn = [{"start": h["time"], "end": h["time"] + 0.1,
+                   "midi": export_daw._GM_DRUM.get(h["drum"], 38), "vel": h["vel"]} for h in drum_hits]
+            produced["drums"] = vst.render_notes_vst(dn, sr, dur, im_d["path"], im_d.get("preset"), is_drum=True)
+            report["vst_used"]["drums"] = "vst"
+        except Exception as e:
+            print(f"[drums] VST 실패 → 합성 폴백: {e}")
+            produced["drums"] = synth.render_drums(drum_hits, sr, dur)
+            report["vst_used"]["drums"] = "synth"
+    else:
+        produced["drums"] = synth.render_drums(drum_hits, sr, dur)
+        report["vst_used"]["drums"] = "synth"
 
     # other
     pol_other = policy.get("other")
-    if pol_other == "retrack":
-        _progress(progress_cb, 75, "기타외 전사·재연주(단선율)")
-        y = _load(stem_paths["other"], sr)
-        notes = tr.transcribe_mono(y, sr, fmin=80, fmax=2000)
-        produced["other"] = synth.render_notes(notes, sr, dur, kind="keys")
-        tr_summary["other_notes"] = len(notes)
-    elif pol_other == "retrack_poly":
-        _progress(progress_cb, 75, "기타외 다성 전사·재연주(basic-pitch)")
-        from . import transcribe_poly as trp  # 제품 빌드에만 존재
-        y = _load(stem_paths["other"], sr)
-        notes = trp.transcribe_polyphonic(y, sr)
-        produced["other"] = synth.render_notes(notes, sr, dur, kind="keys")
-        tr_summary["other_notes"] = len(notes)
-    elif pol_other == "clean_keep":
-        _progress(progress_cb, 75, "기타외 정제 유지(폴리포닉)")
-        y = _load(stem_paths["other"], sr)
-        produced["other"] = np.asarray(mst.clean_instrument(y, sr), dtype=np.float32)
+    need_other_notes = daw_export or bool((instrument_map or {}).get("other")) or pol_other in ("retrack", "retrack_poly")
+    other_notes = None
+    if need_other_notes:
+        _progress(progress_cb, 70, "기타외 전사")
+        if pol_other == "retrack_poly":
+            from . import transcribe_poly as trp
+            other_notes = trp.transcribe_polyphonic(_load(stem_paths["other"], sr), sr)
+        else:
+            other_notes = tr.transcribe_mono(_load(stem_paths["other"], sr), sr, fmin=80, fmax=2000)
+        parts["other"] = other_notes
+    if pol_other != "skip":
+        _progress(progress_cb, 78, "기타외 렌더")
+        produced["other"], ok = _render_melodic("other", stem_paths["other"], other_notes or [], pol_other, sr, dur, instrument_map)
+        report["vst_used"]["other"] = ok
 
     # vocals
-    pol_voc = policy.get("vocals")
-    if pol_voc == "clean_keep":
-        _progress(progress_cb, 85, "보컬 정제 유지")
-        y = _load(stem_paths["vocals"], sr)
-        produced["vocals"] = np.asarray(mst.clean_vocal(y, sr), dtype=np.float32)
+    if policy.get("vocals") == "clean_keep":
+        _progress(progress_cb, 84, "보컬 정제 유지")
+        produced["vocals"] = np.asarray(mst.clean_vocal(_load(stem_paths["vocals"], sr), sr), dtype=np.float32)
 
-    # 재연주 스템 저장
     for name, audio in produced.items():
         sf.write(os.path.join(retrack_dir, f"{name}.wav"), np.asarray(audio, dtype=np.float32), sr)
 
-    report["transcription"] = tr_summary
+    report["transcription"] = {"bass_notes": len(bass_notes), "drum_hits": len(drum_hits),
+                               "other_notes": len(other_notes or [])}
 
-    _progress(progress_cb, 92, "재믹스 + 마스터링")
+    _progress(progress_cb, 90, "재믹스 + 마스터링")
     result = mst.mix_and_master(produced, sr)
     result_path = os.path.join(out_dir, "result.wav")
     sf.write(result_path, np.asarray(result, dtype=np.float32), sr)
 
+    daw_zip = None
+    if daw_export:
+        _progress(progress_cb, 95, "DAW 내보내기 패키지 생성 (스템+MIDI)")
+        daw_zip = export_daw.build_package(out_dir, report, stem_paths, parts)
+
     with open(os.path.join(out_dir, "report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    _progress(progress_cb, 100, f"완료 → {os.path.basename(result_path)}")
-    return {"result": result_path, "report": report, "stems": stem_paths, "retrack_dir": retrack_dir}
+    _progress(progress_cb, 100, "완료")
+    return {"result": result_path, "report": report, "stems": stem_paths,
+            "retrack_dir": retrack_dir, "daw_zip": daw_zip}
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     if len(args) < 2:
-        print("usage: python -m engine.pipeline <input> <out_dir> [--backend auto|demucs|lite] [--preset instrumental|vocal]")
+        print("usage: python -m engine.pipeline <input> <out_dir> [--backend ...] [--preset ...] [--daw-export]")
         sys.exit(1)
     backend = args[args.index("--backend") + 1] if "--backend" in args else "auto"
     preset = args[args.index("--preset") + 1] if "--preset" in args else "instrumental"
-    run(args[0], args[1], backend=backend, preset=preset)
+    daw = "--daw-export" in args
+    run(args[0], args[1], backend=backend, preset=preset, daw_export=daw)

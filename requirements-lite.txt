@@ -4,5 +4,6 @@ soundfile
 librosa
 pedalboard
 pretty_midi
+mido
 flask
 waitress

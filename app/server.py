@@ -26,7 +26,7 @@ app = Flask(__name__, static_folder=None)
 JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 
-def _run_job(job_id, input_path, job_dir, preset, backend):
+def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -35,10 +35,12 @@ def _run_job(job_id, input_path, job_dir, preset, backend):
 
     try:
         job["status"] = "running"
-        out = pipeline.run(input_path, job_dir, backend=backend, preset=preset, progress_cb=cb)
+        out = pipeline.run(input_path, job_dir, backend=backend, preset=preset,
+                           daw_export=daw_export, instrument_map=instrument_map, progress_cb=cb)
         job["result"] = out["result"]
         job["stems"] = out["stems"]
         job["retrack_dir"] = out["retrack_dir"]
+        job["daw_zip"] = out.get("daw_zip")
         job["report"] = out["report"]
         job["status"] = "done"
         job["pct"] = 100
@@ -67,6 +69,13 @@ def process():
     f = request.files["file"]
     preset = request.form.get("preset", "instrumental")
     backend = request.form.get("backend", "auto")
+    daw_export = request.form.get("daw_export", "false").lower() == "true"
+    imap_raw = request.form.get("instrument_map", "")
+    try:
+        import json as _json
+        instrument_map = _json.loads(imap_raw) if imap_raw.strip() else None
+    except Exception:
+        instrument_map = None
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = os.path.join(WORK_ROOT, job_id)
@@ -75,8 +84,10 @@ def process():
     f.save(in_path)
 
     JOBS[job_id] = {"status": "queued", "pct": 0, "msg": "대기", "input": in_path,
-                    "result": None, "error": None}
-    threading.Thread(target=_run_job, args=(job_id, in_path, job_dir, preset, backend), daemon=True).start()
+                    "result": None, "error": None, "daw_zip": None}
+    threading.Thread(target=_run_job,
+                     args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map),
+                     daemon=True).start()
     return jsonify({"job_id": job_id})
 
 
@@ -92,6 +103,7 @@ def status(job_id):
             [f"retrack:{n}" for n in ["bass", "drums", "other", "vocals"]
              if os.path.exists(os.path.join(job.get("retrack_dir", ""), f"{n}.wav"))] + \
             [f"stem:{n}" for n in ["vocals", "drums", "bass", "other"]]
+        r["daw"] = bool(job.get("daw_zip"))
     if job["status"] == "error":
         r["error"] = job.get("error")
     return jsonify(r)
@@ -106,6 +118,10 @@ def get_file(job_id, kind):
         return send_file(job["input"])
     if kind == "result":
         return send_file(job["result"])
+    if kind == "daw":
+        if job.get("daw_zip"):
+            return send_file(job["daw_zip"], as_attachment=True, download_name="daw_package.zip")
+        abort(404)
     if ":" in kind:
         grp, name = kind.split(":", 1)
         if grp == "retrack":

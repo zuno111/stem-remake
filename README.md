@@ -19,3 +19,12 @@
 ## 단독 실행파일
 GitHub Actions(build-windows)가 Windows용 단독 실행 폴더를 빌드해 zip 아티팩트로 제공.
 압축을 풀고 StemRemake.exe 더블클릭 → 브라우저 자동 오픈.
+
+## 모드
+- 리메이크(기본): 분리→재연주→마스터로 새 버전 생성
+- DAW 내보내기(모드 2): 스템 + 파트별 MIDI 패키지 → 큐베이스·로직에서 import해 마무리 (DAW 무관)
+- VST 악기 모드(모드 3): 보유한 .vst3(Win) / AU·VST3(Mac) 플러그인으로 파트 재연주. 로직 내장 악기는 외부 호출 불가
+
+## 빌드 대상
+- Windows: .github/workflows/build-windows.yml → StemRemake-windows.zip
+- macOS:   .github/workflows/build-macos.yml → StemRemake-macos.zip
