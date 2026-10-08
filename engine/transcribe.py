@@ -56,20 +56,51 @@ def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08):
 
 
 def transcribe_drums(y, sr):
-    """온셋별 kick/snare/hat 분류."""
+    """
+    온셋별 드럼 분류. kick/snare/hat 외에 tom/crash 세분화.
+    스펙트럴 센트로이드 + 저역/고역 에너지 비율 + 감쇠 길이로 판별.
+    """
     hop = 256
     onset_frames = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop, backtrack=True)
     onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop)
     cent = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop)[0]
     rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+    # 대역 에너지(저역 <150Hz, 고역 >6kHz)
+    S = np.abs(librosa.stft(y, hop_length=hop))
+    freqs = librosa.fft_frequencies(sr=sr)
+    low_e = S[freqs < 150].sum(axis=0)
+    high_e = S[freqs > 6000].sum(axis=0)
+    total_e = S.sum(axis=0) + 1e-9
     emax = float(rms.max() or 1e-9)
+
+    def decay_frames(f):
+        # 온셋 후 에너지가 초기의 30%로 떨어지는 데 걸리는 프레임(심벌류는 길다)
+        if f >= len(rms):
+            return 0
+        peak = rms[f] + 1e-9
+        c = 0
+        for i in range(f, min(f + 60, len(rms))):
+            if rms[i] < peak * 0.3:
+                break
+            c += 1
+        return c
 
     hits = []
     for f, t in zip(onset_frames, onset_times):
         fi = min(f, len(cent) - 1)
         c = cent[fi]
-        if c < 800:
+        lo = low_e[fi] / total_e[fi]
+        hi = high_e[fi] / total_e[fi]
+        dec = decay_frames(f)
+
+        if lo > 0.35 and c < 300:
             drum = "kick"
+        elif hi > 0.45 and dec > 25:
+            drum = "crash"            # 고역 풍부 + 긴 감쇠
+        elif c > 4500 and dec <= 20:
+            drum = "hat"              # 고역 + 짧은 감쇠
+        elif 150 <= c < 800 and lo > 0.15:
+            drum = "tom"              # 중저역 피치성
         elif c < 3500:
             drum = "snare"
         else:

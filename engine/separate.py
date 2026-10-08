@@ -16,6 +16,7 @@ import librosa
 from scipy.signal import butter, sosfilt
 
 STEMS = ["vocals", "drums", "bass", "other"]
+STEMS_6 = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 
 def _have_demucs():
@@ -28,7 +29,7 @@ def _have_demucs():
 
 
 def separate_demucs(input_path, out_dir, model_name="htdemucs"):
-    """Demucs로 4스템 분리. 제품 빌드 경로."""
+    """Demucs로 스템 분리. model_name='htdemucs_6s'면 6스템(guitar·piano 포함)."""
     import torch
     from demucs.apply import apply_model
     from demucs.pretrained import get_model
@@ -46,10 +47,9 @@ def separate_demucs(input_path, out_dir, model_name="htdemucs"):
     sources = sources * ref.std() + ref.mean()
 
     os.makedirs(out_dir, exist_ok=True)
-    name_to_idx = {n: i for i, n in enumerate(model.sources)}  # drums,bass,other,vocals
     paths = {}
-    for stem in STEMS:
-        idx = name_to_idx[stem]
+    for stem in model.sources:  # 모델이 내놓는 스템 전부 저장
+        idx = model.sources.index(stem)
         audio = sources[idx].cpu().numpy().T  # (samples, channels)
         p = os.path.join(out_dir, f"{stem}.wav")
         sf.write(p, audio, model.samplerate)
@@ -95,12 +95,12 @@ def separate_lite(input_path, out_dir, sr=44100):
     return paths, sr
 
 
-def separate(input_path, out_dir, backend="auto", sr=44100):
+def separate(input_path, out_dir, backend="auto", sr=44100, model_name="htdemucs"):
     if backend == "auto":
         backend = "demucs" if _have_demucs() else "lite"
     if backend == "demucs":
         try:
-            return separate_demucs(input_path, out_dir)  # (paths, sr)
+            return separate_demucs(input_path, out_dir, model_name=model_name)  # (paths, sr)
         except Exception as e:
             print(f"[separate] demucs 실패 → lite 폴백: {e}")
             backend = "lite"

@@ -12,7 +12,7 @@ import shutil
 import pretty_midi
 
 # GM 드럼 노트
-_GM_DRUM = {"kick": 36, "snare": 38, "hat": 42}
+_GM_DRUM = {"kick": 36, "snare": 38, "hat": 42, "tom": 45, "crash": 49}
 
 
 def _add_notes(inst, notes):
@@ -43,11 +43,11 @@ def build_midis(out_dir, bpm, parts):
     os.makedirs(midi_dir, exist_ok=True)
     made = []
 
-    programs = {"bass": 33, "other": 4}  # finger bass, electric piano
+    programs = {"bass": 33, "other": 4, "guitar": 27, "piano": 0}  # finger bass, e.piano, clean guitar, a.piano
     combined = pretty_midi.PrettyMIDI(initial_tempo=float(bpm) if bpm else 120.0)
 
     # 멜로디/화성 파트
-    for name in ["bass", "other"]:
+    for name in ["bass", "other", "guitar", "piano"]:
         notes = parts.get(name)
         if not notes:
             continue

@@ -83,9 +83,24 @@ def _hat(sr):
     return (sosfilt(sos, noise) * 0.5).astype(np.float32)
 
 
+def _tom(sr):
+    n = int(0.3 * sr); t = np.arange(n) / sr
+    f = np.linspace(180, 110, n)
+    w = np.sin(2 * np.pi * np.cumsum(f) / sr) * np.exp(-t * 9)
+    return (w * 0.7).astype(np.float32)
+
+
+def _crash(sr):
+    n = int(0.8 * sr); t = np.arange(n) / sr
+    noise = np.random.randn(n) * np.exp(-t * 3.5)
+    sos = butter(4, 4000, btype="high", fs=sr, output="sos")
+    return (sosfilt(sos, noise) * 0.45).astype(np.float32)
+
+
 def render_drums(hits, sr, duration):
     buf = np.zeros(int(duration * sr) + sr)
-    samples = {"kick": _kick(sr), "snare": _snare(sr), "hat": _hat(sr)}
+    samples = {"kick": _kick(sr), "snare": _snare(sr), "hat": _hat(sr),
+               "tom": _tom(sr), "crash": _crash(sr)}
     for h in hits:
         s = samples[h["drum"]] * (h["vel"] / 127.0)
         start = int(h["time"] * sr)

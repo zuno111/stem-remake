@@ -26,7 +26,8 @@ app = Flask(__name__, static_folder=None)
 JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 
-def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map):
+def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map,
+             six_stem=False, quantize=None):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -36,7 +37,8 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
     try:
         job["status"] = "running"
         out = pipeline.run(input_path, job_dir, backend=backend, preset=preset,
-                           daw_export=daw_export, instrument_map=instrument_map, progress_cb=cb)
+                           daw_export=daw_export, instrument_map=instrument_map,
+                           six_stem=six_stem, quantize=quantize, progress_cb=cb)
         job["result"] = out["result"]
         job["stems"] = out["stems"]
         job["retrack_dir"] = out["retrack_dir"]
@@ -70,12 +72,18 @@ def process():
     preset = request.form.get("preset", "instrumental")
     backend = request.form.get("backend", "auto")
     daw_export = request.form.get("daw_export", "false").lower() == "true"
+    six_stem = request.form.get("six_stem", "false").lower() == "true"
+    import json as _json
     imap_raw = request.form.get("instrument_map", "")
     try:
-        import json as _json
         instrument_map = _json.loads(imap_raw) if imap_raw.strip() else None
     except Exception:
         instrument_map = None
+    quant_raw = request.form.get("quantize", "")
+    try:
+        quantize = _json.loads(quant_raw) if quant_raw.strip() else None
+    except Exception:
+        quantize = None
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = os.path.join(WORK_ROOT, job_id)
@@ -86,7 +94,8 @@ def process():
     JOBS[job_id] = {"status": "queued", "pct": 0, "msg": "대기", "input": in_path,
                     "result": None, "error": None, "daw_zip": None}
     threading.Thread(target=_run_job,
-                     args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map),
+                     args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map,
+                           six_stem, quantize),
                      daemon=True).start()
     return jsonify({"job_id": job_id})
 
@@ -99,10 +108,11 @@ def status(job_id):
     r = {"status": job["status"], "pct": job["pct"], "msg": job["msg"]}
     if job["status"] == "done":
         r["report"] = job.get("report")
+        all_names = ["vocals", "drums", "bass", "guitar", "piano", "other"]
         r["files"] = ["original", "result"] + \
-            [f"retrack:{n}" for n in ["bass", "drums", "other", "vocals"]
+            [f"retrack:{n}" for n in all_names
              if os.path.exists(os.path.join(job.get("retrack_dir", ""), f"{n}.wav"))] + \
-            [f"stem:{n}" for n in ["vocals", "drums", "bass", "other"]]
+            [f"stem:{n}" for n in (job.get("stems") or {}).keys()]
         r["daw"] = bool(job.get("daw_zip"))
     if job["status"] == "error":
         r["error"] = job.get("error")

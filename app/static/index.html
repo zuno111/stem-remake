@@ -50,6 +50,9 @@
   .note{color:var(--sub);font-size:12px;margin-top:8px}
   .chk{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:14px;cursor:pointer}
   .chk input{width:16px;height:16px}
+  .qsel,.qstr{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--fg);
+              padding:6px 8px;font-size:13px;font-family:var(--font)}
+  .qstr{width:70px}
   details.vst{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
   details.vst summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--fg)}
   .vrow{display:flex;align-items:center;gap:10px;margin-top:10px}
@@ -84,6 +87,22 @@
     </div>
     <div class="row" style="margin-top:14px">
       <label class="chk"><input type="checkbox" id="daw"> DAW 내보내기 (스템 + 파트별 MIDI, 큐베이스·로직에서 마무리)</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="chk"><input type="checkbox" id="six"> 6스템 분리 (기타·피아노 따로 분리)</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="chk"><input type="checkbox" id="quant"> 박자 그리드 양자화 (전사 타이밍을 박자에 맞춤)</label>
+      <span class="label">분할</span>
+      <select id="qdiv" class="qsel">
+        <option value="2">8분</option>
+        <option value="4" selected>16분</option>
+        <option value="8">32분</option>
+        <option value="3">8분셋잇단</option>
+        <option value="6">16분셋잇단</option>
+      </select>
+      <span class="label">강도</span>
+      <input id="qstr" type="number" min="0" max="1" step="0.05" value="0.85" class="qstr">
     </div>
     <details class="vst">
       <summary>VST 악기 모드 (내 플러그인으로 재연주)</summary>
@@ -143,6 +162,10 @@ $("#go").onclick=async()=>{
   $("#progress").classList.remove("hidden"); setProg(2,"업로드 중");
   const fd=new FormData(); fd.append("file",picked); fd.append("preset",preset);
   fd.append("daw_export", $("#daw").checked ? "true" : "false");
+  fd.append("six_stem", $("#six").checked ? "true" : "false");
+  if($("#quant").checked){
+    fd.append("quantize", JSON.stringify({division:parseInt($("#qdiv").value,10), strength:parseFloat($("#qstr").value)}));
+  }
   const imap={};
   const addv=(part,pid,prid,pgid)=>{
     const v=$(pid).value.trim(); if(!v) return;

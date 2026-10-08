@@ -79,8 +79,27 @@ def _render_melodic(name, stem_path, notes, policy, sr, dur, instrument_map):
     return np.asarray(mst.clean_instrument(y, sr), dtype=np.float32), "clean_keep"
 
 
+def _maybe_quantize_notes(notes, report, quant):
+    if not quant or not notes:
+        return notes
+    from . import quantize as qz
+    return qz.quantize_notes(notes, report["bpm"], report["duration_sec"],
+                             beat_offset=report.get("beat_times", [0.0])[0] if report.get("beat_times") else 0.0,
+                             division=quant.get("division", 4), strength=quant.get("strength", 0.8))
+
+
+def _maybe_quantize_drums(hits, report, quant):
+    if not quant or not hits:
+        return hits
+    from . import quantize as qz
+    return qz.quantize_drums(hits, report["bpm"], report["duration_sec"],
+                             beat_offset=report.get("beat_times", [0.0])[0] if report.get("beat_times") else 0.0,
+                             division=quant.get("division", 4), strength=quant.get("strength", 0.9))
+
+
 def run(input_path, out_dir, backend="auto", preset="instrumental",
-        instrument_map=None, daw_export=False, progress_cb=None):
+        instrument_map=None, daw_export=False, six_stem=False, quantize=None,
+        progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
     retrack_dir = os.path.join(out_dir, "retrack")
@@ -88,16 +107,19 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
 
     policy = dict(PRESETS.get(preset, PRESETS["instrumental"]))
     poly = _poly_available()
+    model_name = "htdemucs_6s" if six_stem else "htdemucs"
     # 기타외는 자동 믹스에선 정제 유지(합성보다 품질 좋음). 다성 전사는 내보내기/VST에만 사용.
 
-    _progress(progress_cb, 5, f"스템 분리 (backend={backend}, preset={preset})")
-    stem_paths, sr = sep.separate(input_path, stems_dir, backend=backend)
+    _progress(progress_cb, 5, f"스템 분리 (backend={backend}, preset={preset}, model={model_name})")
+    stem_paths, sr = sep.separate(input_path, stems_dir, backend=backend, model_name=model_name)
 
     _progress(progress_cb, 30, "곡 분석 (BPM/키)")
     report = ana.analyze(input_path, sr=sr)
     dur = report["duration_sec"]
     report["preset"] = preset
     report["policy"] = policy
+    report["six_stem"] = bool(stem_paths.get("guitar") or stem_paths.get("piano"))
+    report["quantize"] = quantize or None
     report["vst_used"] = {}
 
     _progress(progress_cb, 40, f"분석: BPM {report['bpm']}, Key {report['key']} {report['mode']}")
@@ -108,6 +130,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     # bass (항상 전사)
     _progress(progress_cb, 50, "베이스 전사")
     bass_notes = tr.transcribe_mono(_load(stem_paths["bass"], sr), sr, fmin=41, fmax=400)
+    bass_notes = _maybe_quantize_notes(bass_notes, report, quantize)
     parts["bass"] = bass_notes
     produced["bass"], bk = _render_melodic("bass", stem_paths["bass"], bass_notes, policy["bass"], sr, dur, instrument_map)
     report["vst_used"]["bass"] = bk
@@ -115,6 +138,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     # drums (항상 전사)
     _progress(progress_cb, 60, "드럼 전사")
     drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
+    drum_hits = _maybe_quantize_drums(drum_hits, report, quantize)
     parts["drums"] = drum_hits
     im_d = (instrument_map or {}).get("drums")
     if im_d and im_d.get("path"):
@@ -148,11 +172,41 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             _progress(progress_cb, 70, "기타외 전사 (단선율)")
             other_notes = tr.transcribe_mono(yo, sr, fmin=80, fmax=2000)
             report["other_transcribe"] = "mono"
+        other_notes = _maybe_quantize_notes(other_notes, report, quantize)
         parts["other"] = other_notes
     if pol_other != "skip":
         _progress(progress_cb, 78, "기타외 렌더")
         produced["other"], ok = _render_melodic("other", stem_paths["other"], other_notes or [], pol_other, sr, dur, instrument_map)
         report["vst_used"]["other"] = ok
+
+    # guitar / piano (6스템일 때만): 전사→내보내기·VST, 자동믹스는 정제 유지
+    for extra in ["guitar", "piano"]:
+        if extra not in stem_paths:
+            continue
+        _progress(progress_cb, 80, f"{extra} 처리")
+        ye = _load(stem_paths[extra], sr)
+        en = None
+        if daw_export or bool((instrument_map or {}).get(extra)):
+            if poly:
+                from . import transcribe_poly as trp
+                en = trp.transcribe_polyphonic(ye, sr)
+            else:
+                en = tr.transcribe_mono(ye, sr, fmin=60, fmax=2000)
+            en = _maybe_quantize_notes(en, report, quantize)
+            parts[extra] = en
+        im_e = (instrument_map or {}).get(extra)
+        if im_e and im_e.get("path"):
+            try:
+                produced[extra] = vst.render_notes_vst(en or [], sr, dur, im_e["path"],
+                                                        im_e.get("preset"), program=im_e.get("program"))
+                report["vst_used"][extra] = "vst"
+            except Exception as e:
+                print(f"[{extra}] VST 실패 → 정제 유지: {e}")
+                produced[extra] = np.asarray(mst.clean_instrument(ye, sr), dtype=np.float32)
+                report["vst_used"][extra] = "clean_keep"
+        else:
+            produced[extra] = np.asarray(mst.clean_instrument(ye, sr), dtype=np.float32)
+            report["vst_used"][extra] = "clean_keep"
 
     # vocals
     if policy.get("vocals") == "clean_keep":
@@ -191,4 +245,7 @@ if __name__ == "__main__":
     backend = args[args.index("--backend") + 1] if "--backend" in args else "auto"
     preset = args[args.index("--preset") + 1] if "--preset" in args else "instrumental"
     daw = "--daw-export" in args
-    run(args[0], args[1], backend=backend, preset=preset, daw_export=daw)
+    six = "--6stem" in args
+    quant = {"division": 4, "strength": 0.85} if "--quantize" in args else None
+    run(args[0], args[1], backend=backend, preset=preset, daw_export=daw,
+        six_stem=six, quantize=quant)
