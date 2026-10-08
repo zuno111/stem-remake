@@ -29,8 +29,12 @@ jobs:
         env:
           TORCH_HOME: ${{ github.workspace }}/models
         run: |
+          pip install --upgrade certifi
+          export SSL_CERT_FILE="$(python -c 'import certifi; print(certifi.where())')"
+          export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
+          echo "SSL_CERT_FILE=$SSL_CERT_FILE"
           python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('model sources:', m.sources)"
-          ls -R "${{ github.workspace }}/models"
+          ls -R "${{ github.workspace }}/models" || true
 
       - name: Build (PyInstaller)
         working-directory: build
