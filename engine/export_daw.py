@@ -34,26 +34,49 @@ def _drum_instrument(hits):
     return inst
 
 
-def build_midis(out_dir, bpm, parts):
+def _shift(items, key_pairs, offset):
+    """offset(초)만큼 당겨 첫 박을 0에 맞춤. key_pairs: 시간 필드명들."""
+    if not offset:
+        return items
+    out = []
+    for it in items:
+        m = dict(it)
+        for k in key_pairs:
+            if k in m:
+                m[k] = max(0.0, m[k] - offset)
+        out.append(m)
+    return out
+
+
+def _new_pm(bpm):
+    pm = pretty_midi.PrettyMIDI(initial_tempo=float(bpm) if bpm else 120.0)
+    # 4/4 박자표 추가 → DAW에서 마디 정렬
+    pm.time_signature_changes.append(pretty_midi.TimeSignature(4, 4, 0))
+    return pm
+
+
+def build_midis(out_dir, bpm, parts, beat_offset=0.0):
     """
-    parts: {"bass": notes|None, "other": notes|None, "drums": hits|None}
-    파트별 .mid + 통합 all.mid 생성. 생성된 파일 경로 리스트 반환.
+    parts: {"bass": notes, "other": notes, "guitar", "piano", "drums": hits}
+    beat_offset: 첫 박 시각(초). 이만큼 당겨 마디 1 박 1에 정렬.
+    파트별 .mid + 통합 all.mid 생성. 정확한 BPM + 4/4 박자표 포함.
     """
     midi_dir = os.path.join(out_dir, "midi")
     os.makedirs(midi_dir, exist_ok=True)
     made = []
 
     programs = {"bass": 33, "other": 4, "guitar": 27, "piano": 0}  # finger bass, e.piano, clean guitar, a.piano
-    combined = pretty_midi.PrettyMIDI(initial_tempo=float(bpm) if bpm else 120.0)
+    combined = _new_pm(bpm)
 
     # 멜로디/화성 파트
     for name in ["bass", "other", "guitar", "piano"]:
         notes = parts.get(name)
         if not notes:
             continue
+        notes = _shift(notes, ("start", "end"), beat_offset)
         inst = pretty_midi.Instrument(program=programs[name], name=name)
         _add_notes(inst, notes)
-        pm = pretty_midi.PrettyMIDI(initial_tempo=float(bpm) if bpm else 120.0)
+        pm = _new_pm(bpm)
         pm.instruments.append(inst)
         p = os.path.join(midi_dir, f"{name}.mid")
         pm.write(p)
@@ -63,8 +86,9 @@ def build_midis(out_dir, bpm, parts):
     # 드럼 파트
     hits = parts.get("drums")
     if hits:
+        hits = _shift(hits, ("time",), beat_offset)
         dinst = _drum_instrument(hits)
-        pm = pretty_midi.PrettyMIDI(initial_tempo=float(bpm) if bpm else 120.0)
+        pm = _new_pm(bpm)
         pm.instruments.append(dinst)
         p = os.path.join(midi_dir, "drums.mid")
         pm.write(p)
@@ -87,8 +111,10 @@ def build_package(out_dir, report, stem_paths, parts):
         shutil.rmtree(pkg)
     os.makedirs(pkg, exist_ok=True)
 
-    # MIDI
-    build_midis(pkg, report.get("bpm"), parts)
+    # MIDI (첫 박 정렬)
+    bt = report.get("beat_times") or []
+    beat_offset = float(bt[0]) if bt else 0.0
+    build_midis(pkg, report.get("bpm"), parts, beat_offset=beat_offset)
 
     # 스템 복사
     stems_out = os.path.join(pkg, "stems")

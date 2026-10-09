@@ -43,6 +43,7 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
         job["stems"] = out["stems"]
         job["retrack_dir"] = out["retrack_dir"]
         job["daw_zip"] = out.get("daw_zip")
+        job["job_dir"] = job_dir
         job["report"] = out["report"]
         job["status"] = "done"
         job["pct"] = 100
@@ -139,6 +140,38 @@ def get_file(job_id, kind):
         if grp == "stem":
             return send_file(job["stems"][name])
     abort(404)
+
+
+@app.post("/api/open_daw/<job_id>")
+def open_daw(job_id):
+    """로컬에서 all.mid를 DAW(또는 OS 기본 연결)로 연다. 앱이 사용자 PC에서 실행되므로 동작."""
+    job = JOBS.get(job_id)
+    if not job or not job.get("job_dir"):
+        return jsonify({"error": "no job"}), 404
+    midi = os.path.join(job["job_dir"], "daw_package", "midi", "all.mid")
+    if not os.path.exists(midi):
+        return jsonify({"error": "DAW 내보내기를 먼저 체크하고 실행하세요"}), 400
+    daw_path = (request.get_json(silent=True) or {}).get("daw_path", "").strip()
+    try:
+        import subprocess, platform
+        sysname = platform.system()
+        if daw_path:
+            if sysname == "Darwin":
+                subprocess.Popen(["open", "-a", daw_path, midi])
+            elif sysname == "Windows":
+                subprocess.Popen([daw_path, midi])
+            else:
+                subprocess.Popen([daw_path, midi])
+        else:
+            if sysname == "Darwin":
+                subprocess.Popen(["open", midi])
+            elif sysname == "Windows":
+                os.startfile(midi)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", midi])
+        return jsonify({"ok": True, "opened": midi})
+    except Exception as e:
+        return jsonify({"error": f"열기 실패: {e}"}), 500
 
 
 def create_app():

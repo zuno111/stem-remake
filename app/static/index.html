@@ -130,6 +130,11 @@
           <a class="dl" id="dlRes" download="remake.wav">결과 다운로드</a>
           <a class="dl" id="dlDaw" style="display:none;margin-left:14px" download="daw_package.zip">DAW 패키지 다운로드</a>
         </div>
+        <div id="dawopen" style="display:none;margin-top:10px">
+          <button class="btn ghost" id="btnOpenDaw" style="padding:8px 14px;font-size:13px">DAW에서 열기 (큐베이스·로직)</button>
+          <input id="dawpath" placeholder="DAW 경로(선택, Mac은 앱 이름 예: Logic Pro)" style="margin-top:8px;width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px 10px;font-size:12px;font-family:var(--font)">
+          <div class="note">비우면 OS 기본 연결 프로그램으로 all.mid를 엽니다. 큐베이스가 안 열리면 경로를 지정하세요. 로직(Mac)은 앱 이름만 넣으면 됩니다.</div>
+        </div>
       </div>
     </div>
     <div class="meta" id="meta"></div>
@@ -146,6 +151,19 @@ let preset="instrumental", picked=null, jobId=null, timer=null;
 document.querySelectorAll("#preset button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("#preset button").forEach(x=>x.classList.remove("on"));
   b.classList.add("on"); preset=b.dataset.v;
+});
+
+document.addEventListener("click", async e=>{
+  if(e.target && e.target.id==="btnOpenDaw" && jobId){
+    e.target.disabled=true; const prev=e.target.textContent; e.target.textContent="여는 중...";
+    try{
+      const r=await fetch("/api/open_daw/"+jobId,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({daw_path:$("#dawpath").value})});
+      const j=await r.json();
+      e.target.textContent = j.ok ? "열었습니다 ✓" : ("실패: "+(j.error||""));
+    }catch(err){ e.target.textContent="실패"; }
+    setTimeout(()=>{e.target.disabled=false; e.target.textContent=prev;}, 2500);
+  }
 });
 
 const drop=$("#drop"), file=$("#file");
@@ -198,6 +216,7 @@ function showResult(j){
   $("#aOrig").src=u("original"); $("#aRes").src=u("result"); $("#dlRes").href=u("result");
   $("#dlDaw").style.display = j.daw ? "inline" : "none";
   if(j.daw) $("#dlDaw").href=u("daw");
+  $("#dawopen").style.display = j.daw ? "block" : "none";
   const rep=j.report||{};
   $("#meta").innerHTML=`<span>BPM <b>${rep.bpm??"-"}</b></span>
     <span>Key <b>${(rep.key||"-")+" "+(rep.mode||"")}</b></span>
