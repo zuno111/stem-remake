@@ -43,13 +43,16 @@ def main(models_dir):
         print("RESULT weight_files=0 total_mb=0 reason=import_failed")
         sys.exit(2)
 
+    errors = []
     for name in ["htdemucs", "htdemucs_6s"]:
         try:
             m = get_model(name)
             print(f"[dl] {name} OK sources={getattr(m,'sources',None)}")
-        except Exception:
+        except Exception as e:
             traceback.print_exc()
-            print(f"[dl] {name} DOWNLOAD FAILED")
+            msg = f"{name}:{type(e).__name__}:{str(e)[:160]}"
+            errors.append(msg)
+            print(f"[dl] {name} DOWNLOAD FAILED {msg}")
 
     try:
         import torch.hub as hub
@@ -88,7 +91,8 @@ def main(models_dir):
             traceback.print_exc()
 
     print(f"[dl] 최종 번들 대상: {dest}")
-    print(f"RESULT weight_files={copied} total_mb={total/1e6:.1f} dest={dest}")
+    err_s = (" err=" + " | ".join(errors)) if errors else ""
+    print(f"RESULT weight_files={copied} total_mb={total/1e6:.1f} dest={dest}{err_s}")
     if copied == 0:
         sys.exit(3)
 
