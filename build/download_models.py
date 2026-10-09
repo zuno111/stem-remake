@@ -44,15 +44,64 @@ def main(models_dir):
         sys.exit(2)
 
     errors = []
+    # 1) 평소 경로 시도(캐시되면 이득)
     for name in ["htdemucs", "htdemucs_6s"]:
         try:
             m = get_model(name)
-            print(f"[dl] {name} OK sources={getattr(m,'sources',None)}")
+            print(f"[dl] get_model {name} OK sources={getattr(m,'sources',None)}")
         except Exception as e:
             traceback.print_exc()
-            msg = f"{name}:{type(e).__name__}:{str(e)[:160]}"
-            errors.append(msg)
-            print(f"[dl] {name} DOWNLOAD FAILED {msg}")
+            errors.append(f"getmodel:{name}:{type(e).__name__}:{str(e)[:120]}")
+
+    # 2) 결정적 직접 다운로드: demucs 패키지의 remote 목록에서 URL을 뽑아 체크포인트로 저장
+    import re
+    import torch.hub as hub
+    dest0 = os.path.join(hub.get_dir(), "checkpoints")
+    os.makedirs(dest0, exist_ok=True)
+    try:
+        from demucs import pretrained as _pt
+        remote_root = getattr(_pt, "REMOTE_ROOT", None)
+        print(f"[dl] REMOTE_ROOT={remote_root}")
+        if remote_root and os.path.isdir(str(remote_root)):
+            rr = str(remote_root)
+            files_txt = os.path.join(rr, "files.txt")
+            sig_to_url = {}
+            if os.path.exists(files_txt):
+                for line in open(files_txt, encoding="utf-8"):
+                    url = line.strip()
+                    if not url:
+                        continue
+                    base = url.split("/")[-1]
+                    sig = base.split("-")[0]
+                    sig_to_url[sig] = url
+            print(f"[dl] files.txt urls={len(sig_to_url)}")
+            # 필요한 시그니처: 두 bag yaml에서 추출
+            need = set()
+            for bag in ["htdemucs", "htdemucs_6s"]:
+                y = os.path.join(rr, bag + ".yaml")
+                if os.path.exists(y):
+                    txt = open(y, encoding="utf-8").read()
+                    for m in re.findall(r"[0-9a-f]{8}", txt):
+                        need.add(m)
+            print(f"[dl] 필요 시그니처: {sorted(need)}")
+            targets = []
+            if need:
+                targets = [(s, sig_to_url[s]) for s in need if s in sig_to_url]
+            else:
+                targets = list(sig_to_url.items())  # 폴백: 전부
+            for sig, url in targets:
+                base = url.split("/")[-1]
+                out = os.path.join(dest0, base)
+                if os.path.exists(out) and os.path.getsize(out) > 1_000_000:
+                    print(f"[dl] 이미 있음 {base}")
+                    continue
+                print(f"[dl] 다운로드 {url}")
+                hub.download_url_to_file(url, out, progress=False)
+        else:
+            errors.append("no_remote_root")
+    except Exception as e:
+        traceback.print_exc()
+        errors.append(f"direct:{type(e).__name__}:{str(e)[:160]}")
 
     try:
         import torch.hub as hub
