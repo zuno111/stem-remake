@@ -28,20 +28,16 @@ jobs:
           pip install onnxruntime mir_eval resampy
           pip install pyinstaller==6.11.1
 
-      - name: Pre-download Demucs model (htdemucs)
-        env:
-          TORCH_HOME: ${{ github.workspace }}/models
+      - name: Pre-download Demucs models (htdemucs + htdemucs_6s)
         run: |
           pip install --upgrade certifi
-          export SSL_CERT_FILE="$(python -c 'import certifi; print(certifi.where())')"
-          export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
-          echo "SSL_CERT_FILE=$SSL_CERT_FILE"
-          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('4-stem:', m.sources)"
-          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs_6s'); print('6-stem:', m.sources)"
-          ls -R "${{ github.workspace }}/models" || true
+          python build/download_models.py "${{ github.workspace }}/models"
+          echo "models dir size:"; du -sh "${{ github.workspace }}/models" || true
 
       - name: Build (PyInstaller)
         working-directory: build
+        env:
+          STEMREMAKE_REQUIRE_MODELS: '1'
         run: pyinstaller stem_remake.spec --noconfirm --clean
 
       - name: Smoke test
