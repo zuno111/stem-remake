@@ -61,17 +61,23 @@ def main(models_dir):
     try:
         from demucs import pretrained as _pt
         remote_root = getattr(_pt, "REMOTE_ROOT", None)
-        print(f"[dl] REMOTE_ROOT={remote_root}")
+        # demucs가 파일명 앞에 붙이는 베이스 URL
+        root_url = getattr(_pt, "ROOT_URL", None) or "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/"
+        if not root_url.endswith("/"):
+            root_url += "/"
+        print(f"[dl] REMOTE_ROOT={remote_root} ROOT_URL={root_url}")
         if remote_root and os.path.isdir(str(remote_root)):
             rr = str(remote_root)
             files_txt = os.path.join(rr, "files.txt")
             sig_to_url = {}
             if os.path.exists(files_txt):
                 for line in open(files_txt, encoding="utf-8"):
-                    url = line.strip()
-                    if not url:
+                    name = line.strip()
+                    if not name:
                         continue
-                    base = url.split("/")[-1]
+                    base = name.split("/")[-1]
+                    # 전체 URL이 아니면 ROOT_URL을 붙인다
+                    url = name if name.startswith(("http://", "https://")) else (root_url + base)
                     sig = base.split("-")[0]
                     sig_to_url[sig] = url
             print(f"[dl] files.txt urls={len(sig_to_url)}")
