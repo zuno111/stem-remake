@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-빌드용 Demucs 모델 다운로더.
-htdemucs(4스템)·htdemucs_6s(6스템) 가중치를 받아 <models_dir> 아래에 모은다.
-torch.hub가 어디에 받든 실제 .th 파일을 찾아 models_dir/hub/checkpoints 로 복사해
-PyInstaller 번들 경로를 결정적으로 만든다. 가중치가 하나도 없으면 비정상 종료.
-
-usage: python build/download_models.py <models_dir>
+빌드용 Demucs 모델 다운로더(진단 강화).
+htdemucs(4스템)·htdemucs_6s(6스템) 가중치를 받아 <models_dir>/hub/checkpoints 로 모은다.
+demucs가 TORCH_HOME을 무시하고 ~/.cache/torch 등에 받을 수 있으므로 넓게 탐색해 복사한다.
+진단을 stdout에 찍고, 마지막 줄에 RESULT 라인을 남겨 워크플로가 어노테이션으로 노출한다.
+가중치 0개면 비정상 종료(빌드 게이트는 spec의 REQUIRE_MODELS가 담당하지만 여기서도 명확히 실패).
 """
 import os
 import sys
 import glob
 import shutil
-import ssl
+import traceback
 
-# macOS 등에서 인증서 검증 실패 방지
 try:
     import certifi
     os.environ.setdefault("SSL_CERT_FILE", certifi.where())
@@ -21,60 +19,78 @@ try:
 except Exception:
     pass
 
+EXTS = ("*.th", "*.ckpt", "*.pt", "*.bin")
+
+
+def _count_th(root):
+    if not root or not os.path.isdir(root):
+        return []
+    out = []
+    for ext in EXTS:
+        out += glob.glob(os.path.join(root, "**", ext), recursive=True)
+    return sorted(set(out))
+
 
 def main(models_dir):
     os.environ["TORCH_HOME"] = models_dir
     os.makedirs(models_dir, exist_ok=True)
-    import torch  # noqa
-    from demucs.pretrained import get_model
+
+    try:
+        import torch  # noqa
+        from demucs.pretrained import get_model
+    except Exception:
+        traceback.print_exc()
+        print("RESULT weight_files=0 total_mb=0 reason=import_failed")
+        sys.exit(2)
 
     for name in ["htdemucs", "htdemucs_6s"]:
-        m = get_model(name)
-        print(f"[dl] {name} sources={m.sources}")
+        try:
+            m = get_model(name)
+            print(f"[dl] {name} OK sources={getattr(m,'sources',None)}")
+        except Exception:
+            traceback.print_exc()
+            print(f"[dl] {name} DOWNLOAD FAILED")
 
-    # torch hub 체크포인트 위치
     try:
         import torch.hub as hub
         hub_dir = hub.get_dir()
     except Exception:
         hub_dir = os.path.join(models_dir, "hub")
-    print(f"[dl] torch hub dir = {hub_dir}")
 
-    dest = os.path.join(models_dir, "hub", "checkpoints")
-    os.makedirs(dest, exist_ok=True)
-
-    # 가능한 모든 캐시 위치에서 가중치 수집
+    home = os.path.expanduser("~")
     search_roots = [
         models_dir,
         hub_dir,
-        os.path.expanduser("~/.cache/torch"),
-        os.path.expanduser("~/Library/Caches/torch"),
-        os.path.expanduser("~/.cache/demucs"),
+        os.path.join(home, ".cache", "torch"),
+        os.path.join(home, "Library", "Caches", "torch"),
+        os.path.join(home, ".cache", "demucs"),
+        os.path.join(home, ".cache"),
     ]
-    found = []
-    for root in search_roots:
-        if not root or not os.path.isdir(root):
-            continue
-        for ext in ("*.th", "*.ckpt", "*.pt", "*.bin"):
-            found += glob.glob(os.path.join(root, "**", ext), recursive=True)
-    found = sorted(set(found))
+    print("[dl] 탐색 경로별 가중치 수:")
+    all_found = []
+    for r in search_roots:
+        fs = _count_th(r)
+        print(f"   {r}  exists={os.path.isdir(r)}  weights={len(fs)}")
+        all_found += fs
+    all_found = sorted(set(all_found))
 
-    copied = 0
-    total = 0
-    for f in found:
+    dest = os.path.join(models_dir, "hub", "checkpoints")
+    os.makedirs(dest, exist_ok=True)
+    copied, total = 0, 0
+    for f in all_found:
         try:
             tgt = os.path.join(dest, os.path.basename(f))
             if os.path.abspath(f) != os.path.abspath(tgt):
                 shutil.copy2(f, tgt)
             total += os.path.getsize(tgt)
             copied += 1
-        except Exception as e:
-            print(f"[dl] copy skip {f}: {e}")
+        except Exception:
+            traceback.print_exc()
 
-    print(f"[dl] weight files collected: {copied}, total {total/1e6:.1f} MB → {dest}")
+    print(f"[dl] 최종 번들 대상: {dest}")
+    print(f"RESULT weight_files={copied} total_mb={total/1e6:.1f} dest={dest}")
     if copied == 0:
-        print("[dl] ERROR: 가중치를 하나도 찾지 못함", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(3)
 
 
 if __name__ == "__main__":

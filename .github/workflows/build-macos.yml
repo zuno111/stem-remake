@@ -31,8 +31,15 @@ jobs:
       - name: Pre-download Demucs models (htdemucs + htdemucs_6s)
         run: |
           pip install --upgrade certifi
-          python build/download_models.py "${{ github.workspace }}/models"
-          echo "models dir size:"; du -sh "${{ github.workspace }}/models" || true
+          set +e
+          python build/download_models.py "${{ github.workspace }}/models" | tee /tmp/dl.log
+          code=${PIPESTATUS[0]}
+          set -e
+          res=$(grep '^RESULT ' /tmp/dl.log | head -1)
+          echo "::warning title=models::$res"
+          sz=$(du -sh "${{ github.workspace }}/models" 2>/dev/null | cut -f1)
+          echo "::warning title=models_dir_size::$sz"
+          if [ "$code" -ne 0 ]; then echo "download_models failed exit=$code"; exit "$code"; fi
 
       - name: Build (PyInstaller)
         working-directory: build

@@ -33,9 +33,13 @@ jobs:
         shell: pwsh
         run: |
           pip install --upgrade certifi
-          python build/download_models.py "${{ github.workspace }}\models"
-          Write-Host "models dir size:"
-          "{0:N1} MB" -f ((Get-ChildItem -Recurse "${{ github.workspace }}\models" | Measure-Object -Property Length -Sum).Sum/1MB)
+          $out = python build/download_models.py "${{ github.workspace }}\models" 2>&1
+          $out | ForEach-Object { Write-Host $_ }
+          $res = ($out | Select-String '^RESULT ').ToString()
+          Write-Host "::warning title=models::$res"
+          $sz = "{0:N1} MB" -f ((Get-ChildItem -Recurse "${{ github.workspace }}\models" -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum/1MB)
+          Write-Host "::warning title=models_dir_size::$sz"
+          if ($LASTEXITCODE -ne 0) { throw "download_models failed exit=$LASTEXITCODE" }
 
       - name: Build (PyInstaller)
         shell: pwsh
