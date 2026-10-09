@@ -39,12 +39,10 @@ jobs:
           echo "::warning title=models::$res"
           sz=$(du -sh "${{ github.workspace }}/models" 2>/dev/null | cut -f1)
           echo "::warning title=models_dir_size::$sz"
-          if [ "$code" -ne 0 ]; then echo "download_models failed exit=$code"; exit "$code"; fi
+          if [ "$code" -ne 0 ]; then echo "::warning::모델 번들 실패(앱은 첫 실행 시 자동 다운로드). 빌드는 계속."; fi
 
       - name: Build (PyInstaller)
         working-directory: build
-        env:
-          STEMREMAKE_REQUIRE_MODELS: '1'
         run: pyinstaller stem_remake.spec --noconfirm --clean
 
       - name: Smoke test
