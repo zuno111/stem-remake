@@ -90,9 +90,34 @@ def main(models_dir):
         except Exception:
             traceback.print_exc()
 
+    # 진단: 가중치가 안 잡히면 HOME·workspace에서 1MB 넘는 파일 census
+    big = []
+    if copied == 0:
+        census_roots = [home, os.getcwd(), models_dir, hub_dir]
+        seen = set()
+        for cr in census_roots:
+            if not cr or not os.path.isdir(cr) or cr in seen:
+                continue
+            seen.add(cr)
+            for r, _d, fs in os.walk(cr):
+                for f in fs:
+                    try:
+                        p = os.path.join(r, f)
+                        sz = os.path.getsize(p)
+                        if sz > 1_000_000:
+                            big.append((sz, p))
+                    except Exception:
+                        pass
+        big.sort(reverse=True)
+        print("[dl] 1MB+ 파일 census(상위 20):")
+        for sz, p in big[:20]:
+            print(f"   {sz/1e6:8.1f}MB  {p}")
+
     print(f"[dl] 최종 번들 대상: {dest}")
     err_s = (" err=" + " | ".join(errors)) if errors else ""
-    print(f"RESULT weight_files={copied} total_mb={total/1e6:.1f} dest={dest}{err_s}")
+    top3 = "; ".join(f"{sz//1_000_000}MB:{os.path.basename(p)}@{os.path.dirname(p)}" for sz, p in big[:3])
+    diag = f" hub_dir={hub_dir} TORCH_HOME={os.environ.get('TORCH_HOME')} top={top3}" if copied == 0 else ""
+    print(f"RESULT weight_files={copied} total_mb={total/1e6:.1f} dest={dest}{err_s}{diag}")
     if copied == 0:
         sys.exit(3)
 
