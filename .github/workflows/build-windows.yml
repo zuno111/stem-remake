@@ -30,6 +30,7 @@ jobs:
           pip install pyinstaller==6.11.1
 
       - name: Pre-download Demucs models (htdemucs + htdemucs_6s)
+        continue-on-error: true
         shell: pwsh
         run: |
           pip install --upgrade certifi
