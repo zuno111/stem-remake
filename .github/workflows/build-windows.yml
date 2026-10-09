@@ -40,6 +40,8 @@ jobs:
           $sz = "{0:N1} MB" -f ((Get-ChildItem -Recurse "${{ github.workspace }}\models" -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum/1MB)
           Write-Host "::warning title=models_dir_size::$sz"
           if ($LASTEXITCODE -ne 0) { Write-Host "::warning::모델 번들 실패(앱은 첫 실행 시 자동 다운로드). 빌드는 계속." }
+          $global:LASTEXITCODE = 0
+          exit 0
 
       - name: Build (PyInstaller)
         shell: pwsh
