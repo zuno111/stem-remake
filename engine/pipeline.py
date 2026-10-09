@@ -99,6 +99,7 @@ def _maybe_quantize_drums(hits, report, quant):
 
 def run(input_path, out_dir, backend="auto", preset="instrumental",
         instrument_map=None, daw_export=False, six_stem=False, quantize=None,
+        bpm_override=None, key_override=None, gains=None,
         progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
@@ -116,6 +117,18 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     _progress(progress_cb, 30, "곡 분석 (BPM/키)")
     report = ana.analyze(input_path, sr=sr)
     dur = report["duration_sec"]
+    # 수동 지정(override): 분석값 대신 사용자 값 사용
+    if bpm_override:
+        try:
+            report["bpm"] = float(bpm_override)
+            report["bpm_source"] = "manual"
+        except (TypeError, ValueError):
+            pass
+    if key_override:
+        parts_k = str(key_override).split()
+        report["key"] = parts_k[0]
+        report["mode"] = parts_k[1] if len(parts_k) > 1 else report.get("mode", "major")
+        report["key_source"] = "manual"
     report["preset"] = preset
     report["policy"] = policy
     report["six_stem"] = bool(stem_paths.get("guitar") or stem_paths.get("piano"))
@@ -220,7 +233,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                                "other_notes": len(other_notes or [])}
 
     _progress(progress_cb, 90, "재믹스 + 마스터링")
-    result = mst.mix_and_master(produced, sr)
+    result = mst.mix_and_master(produced, sr, gains=gains)
+    report["gains"] = gains or None
     result_path = os.path.join(out_dir, "result.wav")
     sf.write(result_path, np.asarray(result, dtype=np.float32), sr)
 

@@ -36,7 +36,8 @@ jobs:
           export SSL_CERT_FILE="$(python -c 'import certifi; print(certifi.where())')"
           export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
           echo "SSL_CERT_FILE=$SSL_CERT_FILE"
-          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('model sources:', m.sources)"
+          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('4-stem:', m.sources)"
+          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs_6s'); print('6-stem:', m.sources)"
           ls -R "${{ github.workspace }}/models" || true
 
       - name: Build (PyInstaller)

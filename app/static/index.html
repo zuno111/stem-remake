@@ -53,6 +53,8 @@
   .qsel,.qstr{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--fg);
               padding:6px 8px;font-size:13px;font-family:var(--font)}
   .qstr{width:70px}
+  .vrow input[type=range]{flex:1;accent-color:var(--accent)}
+  .gval{width:56px;text-align:right;color:var(--sub);font-size:13px}
   details.vst{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
   details.vst summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--fg)}
   .vrow{display:flex;align-items:center;gap:10px;margin-top:10px}
@@ -104,6 +106,29 @@
       <span class="label">강도</span>
       <input id="qstr" type="number" min="0" max="1" step="0.05" value="0.85" class="qstr">
     </div>
+    <div class="row" style="margin-top:12px">
+      <span class="label">BPM(비움=자동)</span>
+      <input id="bpm" type="number" min="40" max="300" step="0.1" placeholder="auto" class="qstr">
+      <span class="label">키(비움=자동)</span>
+      <select id="keynote" class="qsel">
+        <option value="">auto</option>
+        <option>C</option><option>C#</option><option>D</option><option>D#</option><option>E</option><option>F</option>
+        <option>F#</option><option>G</option><option>G#</option><option>A</option><option>A#</option><option>B</option>
+      </select>
+      <select id="keymode" class="qsel">
+        <option value="major">major</option>
+        <option value="minor">minor</option>
+      </select>
+    </div>
+    <details class="vst" style="margin-top:12px">
+      <summary>파트별 음량 (dB, 최종 믹스 밸런스)</summary>
+      <div class="vrow"><span class="vlab">보컬</span><input id="g_vocals" type="range" min="-24" max="12" step="0.5" value="0"><span class="gval" id="gv_vocals">0 dB</span></div>
+      <div class="vrow"><span class="vlab">드럼</span><input id="g_drums" type="range" min="-24" max="12" step="0.5" value="-1"><span class="gval" id="gv_drums">-1 dB</span></div>
+      <div class="vrow"><span class="vlab">베이스</span><input id="g_bass" type="range" min="-24" max="12" step="0.5" value="-2"><span class="gval" id="gv_bass">-2 dB</span></div>
+      <div class="vrow"><span class="vlab">기타외</span><input id="g_other" type="range" min="-24" max="12" step="0.5" value="-3"><span class="gval" id="gv_other">-3 dB</span></div>
+      <div class="vrow"><span class="vlab">기타</span><input id="g_guitar" type="range" min="-24" max="12" step="0.5" value="-3"><span class="gval" id="gv_guitar">-3 dB</span></div>
+      <div class="vrow"><span class="vlab">피아노</span><input id="g_piano" type="range" min="-24" max="12" step="0.5" value="-3"><span class="gval" id="gv_piano">-3 dB</span></div>
+    </details>
     <details class="vst">
       <summary>VST 악기 모드 (내 플러그인으로 재연주)</summary>
       <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 기본 합성)"><input id="pre_bass" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_bass" class="prog" type="number" placeholder="패치#"></div>
@@ -166,6 +191,38 @@ document.addEventListener("click", async e=>{
   }
 });
 
+// 게인 슬라이더 라벨 실시간 갱신
+["vocals","drums","bass","other","guitar","piano"].forEach(p=>{
+  const el=$("#g_"+p); if(el) el.addEventListener("input",()=>{ $("#gv_"+p).textContent=el.value+" dB"; });
+});
+
+// 설정 저장/복원 (localStorage)
+function saveSettings(){
+  try{
+    const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
+      qdiv:$("#qdiv").value,qstr:$("#qstr").value,
+      vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
+      pre_bass:$("#pre_bass").value,pre_drums:$("#pre_drums").value,pre_other:$("#pre_other").value,
+      prg_bass:$("#prg_bass").value,prg_drums:$("#prg_drums").value,prg_other:$("#prg_other").value,
+      dawpath:$("#dawpath")?$("#dawpath").value:"",
+      gains:{}};
+    ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{s.gains[p]=$("#g_"+p).value;});
+    localStorage.setItem("stemremake_settings", JSON.stringify(s));
+  }catch(e){}
+}
+function loadSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem("stemremake_settings")||"{}");
+    if(!s||!Object.keys(s).length) return;
+    if(s.daw!=null)$("#daw").checked=s.daw; if(s.six!=null)$("#six").checked=s.six; if(s.quant!=null)$("#quant").checked=s.quant;
+    if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
+    ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
+    if(s.gains){ ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{ if(s.gains[p]!=null&&$("#g_"+p)){$("#g_"+p).value=s.gains[p]; $("#gv_"+p).textContent=s.gains[p]+" dB";} }); }
+    if(s.preset){ document.querySelectorAll("#preset button").forEach(b=>{b.classList.toggle("on",b.dataset.v===s.preset);}); preset=s.preset; }
+  }catch(e){}
+}
+loadSettings();
+
 const drop=$("#drop"), file=$("#file");
 drop.onclick=()=>file.click();
 ["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("over")}));
@@ -184,6 +241,11 @@ $("#go").onclick=async()=>{
   if($("#quant").checked){
     fd.append("quantize", JSON.stringify({division:parseInt($("#qdiv").value,10), strength:parseFloat($("#qstr").value)}));
   }
+  if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
+  if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
+  const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});
+  fd.append("gains", JSON.stringify(gains));
+  saveSettings();
   const imap={};
   const addv=(part,pid,prid,pgid)=>{
     const v=$(pid).value.trim(); if(!v) return;

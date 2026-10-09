@@ -34,7 +34,8 @@ jobs:
         env:
           TORCH_HOME: ${{ github.workspace }}\models
         run: |
-          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('model sources:', m.sources)"
+          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs'); print('4-stem:', m.sources)"
+          python -c "from demucs.pretrained import get_model; m=get_model('htdemucs_6s'); print('6-stem:', m.sources)"
           Get-ChildItem -Recurse "${{ github.workspace }}\models" | Select-Object FullName
 
       - name: Build (PyInstaller)

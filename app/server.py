@@ -27,7 +27,7 @@ JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 
 def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map,
-             six_stem=False, quantize=None):
+             six_stem=False, quantize=None, bpm_override=None, key_override=None, gains=None):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -38,7 +38,9 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
         job["status"] = "running"
         out = pipeline.run(input_path, job_dir, backend=backend, preset=preset,
                            daw_export=daw_export, instrument_map=instrument_map,
-                           six_stem=six_stem, quantize=quantize, progress_cb=cb)
+                           six_stem=six_stem, quantize=quantize,
+                           bpm_override=bpm_override, key_override=key_override, gains=gains,
+                           progress_cb=cb)
         job["result"] = out["result"]
         job["stems"] = out["stems"]
         job["retrack_dir"] = out["retrack_dir"]
@@ -85,6 +87,13 @@ def process():
         quantize = _json.loads(quant_raw) if quant_raw.strip() else None
     except Exception:
         quantize = None
+    bpm_override = request.form.get("bpm_override", "").strip() or None
+    key_override = request.form.get("key_override", "").strip() or None
+    gains_raw = request.form.get("gains", "")
+    try:
+        gains = _json.loads(gains_raw) if gains_raw.strip() else None
+    except Exception:
+        gains = None
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = os.path.join(WORK_ROOT, job_id)
@@ -96,7 +105,7 @@ def process():
                     "result": None, "error": None, "daw_zip": None}
     threading.Thread(target=_run_job,
                      args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map,
-                           six_stem, quantize),
+                           six_stem, quantize, bpm_override, key_override, gains),
                      daemon=True).start()
     return jsonify({"job_id": job_id})
 
