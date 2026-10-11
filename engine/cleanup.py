@@ -14,19 +14,29 @@ def remove_short(notes, min_dur=0.09):
 
 
 def merge_adjacent(notes, gap_tol=0.03):
-    """시간순 정렬 후, 같은 midi이고 간격이 gap_tol 이하인 노트를 이어붙임."""
+    """같은 midi이고 간격이 gap_tol 이하인 노트를 이어붙임(음정별로 묶어 처리).
+
+    다성에서 다른 음이 사이에 끼어도 같은 음의 파편을 병합한다(정렬-연속 방식의 한계 보완).
+    모노에서는 기존과 동일하게 동작.
+    """
     if not notes:
         return notes
-    ns = sorted(notes, key=lambda n: n["start"])
-    out = [dict(ns[0])]
-    for n in ns[1:]:
-        last = out[-1]
-        if n["midi"] == last["midi"] and n["start"] - last["end"] <= gap_tol:
-            last["end"] = max(last["end"], n["end"])
-            last["vel"] = max(last.get("vel", 90), n.get("vel", 90))
-        else:
-            out.append(dict(n))
-    return out
+    from collections import defaultdict
+    by_pitch = defaultdict(list)
+    for n in notes:
+        by_pitch[n["midi"]].append(n)
+    out = []
+    for midi, group in by_pitch.items():
+        g = sorted(group, key=lambda n: n["start"])
+        cur = dict(g[0])
+        for n in g[1:]:
+            if n["start"] - cur["end"] <= gap_tol:
+                cur["end"] = max(cur["end"], n["end"])
+                cur["vel"] = max(cur.get("vel", 90), n.get("vel", 90))
+            else:
+                out.append(cur); cur = dict(n)
+        out.append(cur)
+    return sorted(out, key=lambda n: n["start"])
 
 
 def fix_octave_spikes(notes, win=2):
