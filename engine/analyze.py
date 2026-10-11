@@ -13,7 +13,14 @@ _NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
 def estimate_key(y, sr):
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    # 타악 전사음은 크로마를 흐려 키 추정을 틀리게 하므로, 하모닉 성분만 분리해 사용.
+    try:
+        y_h = librosa.effects.harmonic(y, margin=3.0)
+        if not np.any(np.abs(y_h) > 1e-6):
+            y_h = y
+    except Exception:
+        y_h = y
+    chroma = librosa.feature.chroma_cqt(y=y_h, sr=sr)
     prof = chroma.mean(axis=1)
     prof = prof / (prof.sum() + 1e-9)
     best = (-1.0, "C", "major")
