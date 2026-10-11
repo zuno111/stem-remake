@@ -12,6 +12,7 @@ for pkg in [
     "dora", "lameenc", "einops", "scipy", "audioread",
     "soxr", "numba", "llvmlite", "sklearn", "flask", "waitress",
     "basic_pitch", "onnxruntime", "mir_eval", "resampy",
+    "noisereduce",
 ]:
     try:
         d, b, h = collect_all(pkg)
@@ -43,7 +44,7 @@ a = Analysis(
     pathex=[ROOT],
     binaries=binaries,
     datas=datas,
-    hiddenimports=hiddenimports + ["engine", "engine.pipeline", "app.server"],
+    hiddenimports=hiddenimports + ["engine", "engine.pipeline", "engine.enhance", "app.server"],
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "matplotlib", "PyQt5", "PySide2", "IPython"],

@@ -3,6 +3,7 @@ scipy
 soundfile
 librosa
 pedalboard
+noisereduce
 pretty_midi
 mido
 flask

@@ -80,7 +80,14 @@
       <div class="seg" id="preset">
         <button data-v="instrumental" class="on">연주곡</button>
         <button data-v="vocal">보컬곡</button>
+        <button data-v="enhance">원본 보정</button>
       </div>
+    </div>
+    <div class="row" id="enhanceOpts" style="margin-bottom:14px;display:none">
+      <span class="label">디노이즈 세기</span>
+      <input id="denoise" type="range" min="0" max="1" step="0.05" value="0.55" style="flex:1;max-width:260px">
+      <span class="gval" id="denoiseVal">0.55</span>
+      <div class="note" style="width:100%;margin-top:6px">원본 보정: 분리·재연주 없이 원본을 그대로(스테레오 유지) 노이즈 제거·EQ·마스터만. 아래 분리 옵션은 무시됩니다. 과하게 뭉개지면 세기를 낮추세요.</div>
     </div>
     <div class="drop" id="drop">
       <div class="big">음원 파일을 여기에 끌어다 놓기</div>
@@ -184,10 +191,12 @@
 const $=s=>document.querySelector(s);
 let preset="instrumental", picked=null, jobId=null, timer=null;
 
+function syncMode(){ $("#enhanceOpts").style.display = (preset==="enhance") ? "flex" : "none"; }
 document.querySelectorAll("#preset button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("#preset button").forEach(x=>x.classList.remove("on"));
-  b.classList.add("on"); preset=b.dataset.v;
+  b.classList.add("on"); preset=b.dataset.v; syncMode();
 });
+{const dn=$("#denoise"); if(dn) dn.addEventListener("input",()=>{$("#denoiseVal").textContent=dn.value;});}
 
 document.addEventListener("click", async e=>{
   if(e.target && e.target.id==="btnOpenDaw" && jobId){
@@ -211,7 +220,7 @@ document.addEventListener("click", async e=>{
 function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
-      compare:$("#compare").checked,
+      compare:$("#compare").checked, denoise:$("#denoise").value,
       qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
       pre_bass:$("#pre_bass").value,pre_drums:$("#pre_drums").value,pre_other:$("#pre_other").value,
@@ -232,10 +241,11 @@ function loadSettings(){
     if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
     ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
     if(s.gains){ ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{ if(s.gains[p]!=null&&$("#g_"+p)){$("#g_"+p).value=s.gains[p]; $("#gv_"+p).textContent=s.gains[p]+" dB";} }); }
+    if(s.denoise!=null&&$("#denoise")){ $("#denoise").value=s.denoise; $("#denoiseVal").textContent=s.denoise; }
     if(s.preset){ document.querySelectorAll("#preset button").forEach(b=>{b.classList.toggle("on",b.dataset.v===s.preset);}); preset=s.preset; }
   }catch(e){}
 }
-loadSettings();
+loadSettings(); syncMode();
 
 const drop=$("#drop"), file=$("#file");
 drop.onclick=()=>file.click();
@@ -257,6 +267,7 @@ $("#go").onclick=async()=>{
   }
   fd.append("keysnap", $("#keysnap").checked ? "true" : "false");
   fd.append("compare", $("#compare").checked ? "true" : "false");
+  fd.append("denoise", $("#denoise").value);
   if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
   if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
   const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});
@@ -302,10 +313,17 @@ function showResult(j){
   if(j.daw) $("#dlDaw").href=u("daw");
   $("#dawopen").style.display = j.daw ? "block" : "none";
   const rep=j.report||{};
-  $("#meta").innerHTML=`<span>BPM <b>${rep.bpm??"-"}</b></span>
-    <span>Key <b>${(rep.key||"-")+" "+(rep.mode||"")}</b></span>
-    <span>길이 <b>${rep.duration_sec??"-"}s</b></span>
-    <span>모드 <b>${rep.preset==="vocal"?"보컬곡":"연주곡"}</b></span>`;
+  if(rep.mode==="enhance"){
+    const e=rep.enhance||{};
+    $("#meta").innerHTML=`<span>모드 <b>원본 보정</b></span>
+      <span>채널 <b>${e.channels===2?"스테레오":"모노"}</b></span>
+      <span>라우드니스 <b>${e.lufs_before??"-"} → ${e.lufs_after??"-"} LUFS</b></span>`;
+  } else {
+    $("#meta").innerHTML=`<span>BPM <b>${rep.bpm??"-"}</b></span>
+      <span>Key <b>${(rep.key||"-")+" "+(rep.mode||"")}</b></span>
+      <span>길이 <b>${rep.duration_sec??"-"}s</b></span>
+      <span>모드 <b>${rep.preset==="vocal"?"보컬곡":"연주곡"}</b></span>`;
+  }
   const stemsBox=$("#stems"); stemsBox.innerHTML="";
   (j.files||[]).filter(f=>f.includes(":")).forEach(f=>{
     const [grp,name]=f.split(":");

@@ -28,7 +28,7 @@ JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map,
              six_stem=False, quantize=None, bpm_override=None, key_override=None, gains=None,
-             keysnap=False, compare=False):
+             keysnap=False, compare=False, denoise=0.55):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -37,6 +37,22 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
 
     try:
         job["status"] = "running"
+        # 원본 보정 모드: 분리·재연주 없이 원본을 직접 손봐 음질 업그레이드(스테레오 유지)
+        if preset == "enhance":
+            from engine import enhance as _enh
+            cb(10, "원본 보정 (디노이즈·EQ·마스터)")
+            out_path = os.path.join(job_dir, "result.wav")
+            rep = _enh.enhance(input_path, out_path, denoise=float(denoise))
+            cb(100, "완료")
+            job["result"] = out_path
+            job["result_preserve"] = None
+            job["stems"] = {}
+            job["retrack_dir"] = job_dir
+            job["daw_zip"] = None
+            job["job_dir"] = job_dir
+            job["report"] = {"mode": "enhance", "enhance": rep}
+            job["status"] = "done"; job["pct"] = 100; job["msg"] = "완료"
+            return
         out = pipeline.run(input_path, job_dir, backend=backend, preset=preset,
                            daw_export=daw_export, instrument_map=instrument_map,
                            six_stem=six_stem, quantize=quantize,
@@ -91,6 +107,10 @@ def process():
         quantize = None
     keysnap = request.form.get("keysnap", "false").lower() == "true"
     compare = request.form.get("compare", "false").lower() == "true"
+    try:
+        denoise = float(request.form.get("denoise", "0.55"))
+    except (TypeError, ValueError):
+        denoise = 0.55
     bpm_override = request.form.get("bpm_override", "").strip() or None
     key_override = request.form.get("key_override", "").strip() or None
     gains_raw = request.form.get("gains", "")
@@ -109,7 +129,8 @@ def process():
                     "result": None, "error": None, "daw_zip": None}
     threading.Thread(target=_run_job,
                      args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map,
-                           six_stem, quantize, bpm_override, key_override, gains, keysnap, compare),
+                           six_stem, quantize, bpm_override, key_override, gains, keysnap, compare,
+                           denoise),
                      daemon=True).start()
     return jsonify({"job_id": job_id})
 
