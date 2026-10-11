@@ -20,6 +20,30 @@ def _true_peak(y, oversample=4):
         return float(np.max(np.abs(y)))
 
 
+def _true_peak_limit(y, sr, ceil_db=-1.0, oversample=4):
+    """오버샘플 도메인에서 리미팅해 인터샘플 피크를 천장 아래로 제어.
+    전체 스케일 다운(라우드니스 손실) 대신 피크만 눌러 체감 음량을 보존한다."""
+    ceil = 10 ** (ceil_db / 20.0)
+    try:
+        from scipy.signal import resample_poly
+        up = resample_poly(y.astype(np.float64), oversample, 1)
+        # 다운샘플 리플 여유를 위해 내부 리미터는 약간 낮게(-0.6dB) 건다
+        lim = Pedalboard([Limiter(threshold_db=ceil_db - 0.6, release_ms=80)])
+        up = np.asarray(lim(up.astype(np.float32), sr * oversample), dtype=np.float64)
+        down = resample_poly(up, 1, oversample)
+        down = down[: len(y)] if len(down) >= len(y) else np.pad(down, (0, len(y) - len(down)))
+        # 최종 보증은 '트루피크' 기준(샘플피크 아님) — 인터샘플 초과분까지 제거
+        tp = _true_peak(down) or 1.0
+        if tp > ceil:
+            down = down * (ceil / tp)
+        return down.astype(np.float32)
+    except Exception:
+        tp = _true_peak(y) or 1.0
+        if tp > ceil:
+            return (y * (ceil / tp)).astype(np.float32)
+        return np.asarray(y, dtype=np.float32)
+
+
 def clean_vocal(y, sr):
     """보컬 스템 정제: 저역 잡음 제거 + 디에서성 + 살짝의 공간감."""
     board = Pedalboard([
@@ -44,10 +68,11 @@ def clean_instrument(y, sr, bright=True):
     return Pedalboard(chain)(y, sr)
 
 
-def mix_and_master(stems, sr, gains=None):
+def mix_and_master(stems, sr, gains=None, target_lufs=-14.0):
     """
     재연주 악기 + 정제 보컬을 믹스 후 마스터링.
     stems: {name: np.ndarray}. gains: {name: dB} 선택.
+    target_lufs: 적분 라우드니스 목표(스트리밍 -14 LUFS). None이면 라우드니스 정규화 생략.
     """
     gains = gains or {"vocals": 0.0, "drums": -1.0, "bass": -2.0, "other": -3.0}
     length = max(len(a) for a in stems.values())
@@ -71,9 +96,15 @@ def mix_and_master(stems, sr, gains=None):
         Gain(gain_db=0.0),
     ])
     out = np.asarray(master(mix, sr), dtype=np.float32)
-    # 최종 안전 천장: 트루피크 -1dBTP 기준(인터샘플 클리핑까지 방지)
-    ceil = 10 ** (-1.0 / 20.0)  # ≈0.891
-    tp = _true_peak(out) or 1.0
-    if tp > ceil:
-        out = (out * (ceil / tp)).astype(np.float32)
+
+    # 라우드니스 정규화: 트랙 간 체감 음량 일정화(-14 LUFS 기본)
+    if target_lufs is not None:
+        try:
+            from . import loudness as _ld
+            out, _cur, _g = _ld.normalize_lufs(out, sr, target_lufs=target_lufs)
+        except Exception:
+            pass
+
+    # 최종 안전 천장: 트루피크 -1dBTP 리미팅(라우드니스 보존, 인터샘플 클리핑 방지)
+    out = _true_peak_limit(out, sr, ceil_db=-1.0)
     return out
