@@ -193,7 +193,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         if poly:
             _progress(progress_cb, 70, "기타외 다성 전사 (basic-pitch)")
             from . import transcribe_poly as trp
-            other_notes = trp.transcribe_polyphonic(yo, sr)
+            other_notes = trp.transcribe_polyphonic(yo, sr, fmin=40.0, fmax=3000.0)
             report["other_transcribe"] = "poly"
         else:
             _progress(progress_cb, 70, "기타외 전사 (단선율)")
@@ -218,7 +218,9 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         if daw_export or bool((instrument_map or {}).get(extra)):
             if poly:
                 from . import transcribe_poly as trp
-                en = trp.transcribe_polyphonic(ye, sr)
+                # 파트 음역: 기타 70~2500Hz, 피아노 30~4000Hz
+                fr = (70.0, 2500.0) if extra == "guitar" else (30.0, 4000.0)
+                en = trp.transcribe_polyphonic(ye, sr, fmin=fr[0], fmax=fr[1])
             else:
                 en = tr.transcribe_mono(ye, sr, fmin=60, fmax=2000)
             en = _cl.clean_mono(en, fix_octave=False)
