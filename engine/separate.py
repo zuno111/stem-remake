@@ -68,7 +68,10 @@ def separate_lite(input_path, out_dir, sr=44100):
     y, sr = librosa.load(input_path, sr=sr, mono=True)
 
     S_full, phase = librosa.magphase(librosa.stft(y))
+    n_frames = S_full.shape[-1]
+    # nn_filter width는 1 이상, n_frames//2 - 1 이하여야 함(짧은 클립 크래시 방지)
     win = max(1, int(librosa.time_to_frames(2.0, sr=sr)))
+    win = min(win, max(1, n_frames // 2 - 1))
     S_filter = librosa.decompose.nn_filter(
         S_full, aggregate=np.median, metric="cosine", width=win
     )

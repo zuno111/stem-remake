@@ -48,13 +48,20 @@ def render_notes(notes, sr, duration, kind="bass"):
         amp = nt["vel"] / 127.0
         t = np.arange(n) / sr
         if kind == "bass":
-            wave = 0.7 * np.sin(2 * np.pi * f * t) + 0.3 * _saw(f, n, sr)
-            env = _adsr(n, sr, a=0.004, d=0.06, s=0.75, r=0.06)
-        else:  # keys / other: 디튠 saw + 저역 필터
-            wave = _saw(f, n, sr, detune=0.008)
-            sos = butter(2, min(f * 6, sr / 2 - 100), btype="low", fs=sr, output="sos")
+            # 기음 + saw 질감 + 한 옥타브 아래 서브로 무게감
+            sub = 0.25 * np.sin(2 * np.pi * (f * 0.5) * t)
+            wave = 0.62 * np.sin(2 * np.pi * f * t) + 0.28 * _saw(f, n, sr) + sub
+            # 세기에 따라 밝기 조절(강하게 칠수록 배음 더 열림)
+            cut = min(f * (3.0 + 5.0 * amp), sr / 2 - 100)
+            sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
             wave = sosfilt(sos, wave)
-            env = _adsr(n, sr, a=0.01, d=0.1, s=0.6, r=0.12)
+            env = _adsr(n, sr, a=0.004, d=0.06, s=0.75, r=0.06)
+        else:  # keys / other: 2겹 디튠 saw + 세기 연동 저역 필터
+            wave = 0.6 * _saw(f, n, sr, detune=0.008) + 0.4 * _saw(f * 2, n, sr, detune=0.006)
+            cut = min(f * (4.0 + 6.0 * amp), sr / 2 - 100)
+            sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
+            wave = sosfilt(sos, wave)
+            env = _adsr(n, sr, a=0.01, d=0.1, s=0.6, r=0.14)
         seg = (wave * env * amp).astype(np.float32)
         end = min(start + n, len(buf))
         buf[start:end] += seg[:end - start]

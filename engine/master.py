@@ -10,6 +10,16 @@ from pedalboard import (
 )
 
 
+def _true_peak(y, oversample=4):
+    """인터샘플(트루) 피크 추정. 4배 오버샘플 후 최대 절댓값."""
+    try:
+        from scipy.signal import resample_poly
+        up = resample_poly(y.astype(np.float64), oversample, 1)
+        return float(np.max(np.abs(up)))
+    except Exception:
+        return float(np.max(np.abs(y)))
+
+
 def clean_vocal(y, sr):
     """보컬 스템 정제: 저역 잡음 제거 + 디에서성 + 살짝의 공간감."""
     board = Pedalboard([
@@ -61,9 +71,9 @@ def mix_and_master(stems, sr, gains=None):
         Gain(gain_db=0.0),
     ])
     out = np.asarray(master(mix, sr), dtype=np.float32)
-    # 최종 안전 천장: -1dBFS 초과분 제거(진짜 클리핑 방지)
-    peak = float(np.max(np.abs(out))) or 1.0
+    # 최종 안전 천장: 트루피크 -1dBTP 기준(인터샘플 클리핑까지 방지)
     ceil = 10 ** (-1.0 / 20.0)  # ≈0.891
-    if peak > ceil:
-        out = out * (ceil / peak)
+    tp = _true_peak(out) or 1.0
+    if tp > ceil:
+        out = (out * (ceil / tp)).astype(np.float32)
     return out

@@ -12,17 +12,30 @@ import numpy as np
 import librosa
 
 
-def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08):
-    """pYIN 단선율 전사. 베이스/리드 멜로디용."""
+def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08, conf_thresh=0.45):
+    """pYIN 단선율 전사. 베이스/리드 멜로디용.
+
+    conf_thresh: pYIN voiced_prob(유성음 신뢰도) 하한. 이 값 미만 프레임은 전사에서 제외해
+    노이즈/무성 구간의 유령 음을 줄인다. 0이면 신뢰도 게이트 끔.
+    """
     # fmin에서 두 주기 이상 들어가도록 frame_length 확보(저역 정확도)
     frame_length = max(2048, int(2 ** np.ceil(np.log2(2.5 * sr / fmin))))
-    f0, voiced, _ = librosa.pyin(
-        y, fmin=fmin, fmax=fmax, sr=sr, frame_length=frame_length, hop_length=256
-    )
     hop = 256
+    f0, voiced, vprob = librosa.pyin(
+        y, fmin=fmin, fmax=fmax, sr=sr, frame_length=frame_length, hop_length=hop
+    )
+    if vprob is None:
+        vprob = np.where(voiced, 1.0, 0.0)
     times = librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop)
-    midi = np.where(voiced & np.isfinite(f0), librosa.hz_to_midi(np.nan_to_num(f0, nan=0.0)), np.nan)
-    midi = np.round(midi)
+
+    # 유효 프레임: 유성 + 유한 f0 + 양수 주파수 + 신뢰도 임계 통과
+    valid = voiced & np.isfinite(f0) & (np.nan_to_num(f0, nan=0.0) > 0.0)
+    if conf_thresh > 0:
+        valid = valid & (vprob >= conf_thresh)
+    # 유효 프레임에서만 hz_to_midi 계산 → log2(0) divide-by-zero 경고 제거
+    midi = np.full(len(f0), np.nan)
+    if valid.any():
+        midi[valid] = np.round(librosa.hz_to_midi(f0[valid]))
 
     # 에너지(세기) 추출
     rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop)[0]
@@ -38,10 +51,12 @@ def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08):
         if cur and abs(m - cur["midi"]) < 0.5:
             cur["end"] = times[i]
             cur["_e"].append(rms[i])
+            cur["_c"].append(vprob[i])
         else:
             if cur:
                 notes.append(cur)
-            cur = {"start": float(times[i]), "end": float(times[i]), "midi": int(m), "_e": [rms[i]]}
+            cur = {"start": float(times[i]), "end": float(times[i]), "midi": int(m),
+                   "_e": [rms[i]], "_c": [vprob[i]]}
     if cur:
         notes.append(cur)
 
@@ -49,6 +64,10 @@ def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08):
     emax = max((max(n["_e"]) for n in notes), default=1e-9) or 1e-9
     for n in notes:
         if n["end"] - n["start"] < min_dur:
+            continue
+        # 평균 신뢰도가 임계의 절반에도 못 미치는 짧은 노트는 유령음으로 보고 제외
+        if conf_thresh > 0 and float(np.mean(n["_c"])) < conf_thresh * 0.9 \
+                and (n["end"] - n["start"]) < min_dur * 2:
             continue
         vel = int(np.clip(90 * (np.mean(n["_e"]) / emax) + 30, 20, 127))
         out.append({"start": n["start"], "end": n["end"], "midi": n["midi"], "vel": vel})
