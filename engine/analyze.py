@@ -27,14 +27,33 @@ def estimate_key(y, sr):
     return {"key": best[1], "mode": best[2], "confidence": round(float(best[0]), 3)}
 
 
+def _fold_tempo(bpm, lo=75.0, hi=150.0):
+    """옥타브 오류(절반/두 배 템포) 보정: 선호 범위로 ×2/÷2 접기.
+    librosa beat_track가 하프타임/더블타임에 락되는 흔한 오류를 완화한다.
+    극단적 실제 템포는 UI의 수동 BPM 입력으로 대응."""
+    if bpm <= 0:
+        return bpm
+    b = float(bpm)
+    for _ in range(4):
+        if b < lo:
+            b *= 2.0
+        elif b >= hi:
+            b /= 2.0
+        else:
+            break
+    return b
+
+
 def analyze(path, sr=44100):
     y, sr = librosa.load(path, sr=sr, mono=True)
     tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-    tempo = float(np.atleast_1d(tempo)[0])
+    tempo_raw = float(np.atleast_1d(tempo)[0])
+    tempo = _fold_tempo(tempo_raw)
     beat_times = librosa.frames_to_time(beats, sr=sr).tolist()
     key = estimate_key(y, sr)
     return {
         "bpm": round(tempo, 2),
+        "bpm_raw": round(tempo_raw, 2),
         "key": key["key"],
         "mode": key["mode"],
         "key_confidence": key["confidence"],
