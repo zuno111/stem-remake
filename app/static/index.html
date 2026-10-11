@@ -88,6 +88,9 @@
       <input type="file" id="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" class="hidden">
     </div>
     <div class="row" style="margin-top:14px">
+      <label class="chk"><input type="checkbox" id="compare"> 비교 모드 (재연주본 + 음색 유지본 둘 다 만들어 나란히 비교)</label>
+    </div>
+    <div class="row" style="margin-top:10px">
       <label class="chk"><input type="checkbox" id="daw"> DAW 내보내기 (스템 + 파트별 MIDI, 큐베이스·로직에서 마무리)</label>
     </div>
     <div class="row" style="margin-top:10px">
@@ -153,15 +156,20 @@
   <div class="card hidden" id="done">
     <div class="ab">
       <div class="player"><h4>원본</h4><audio id="aOrig" controls></audio></div>
-      <div class="player result"><h4>리메이크 결과</h4><audio id="aRes" controls></audio>
+      <div class="player result"><h4>재연주본 (채보 후 재연주)</h4><audio id="aRes" controls></audio>
         <div style="margin-top:8px">
-          <a class="dl" id="dlRes" download="remake.wav">결과 다운로드</a>
+          <a class="dl" id="dlRes" download="remake.wav">재연주본 다운로드</a>
           <a class="dl" id="dlDaw" style="display:none;margin-left:14px" download="daw_package.zip">DAW 패키지 다운로드</a>
         </div>
         <div id="dawopen" style="display:none;margin-top:10px">
           <button class="btn ghost" id="btnOpenDaw" style="padding:8px 14px;font-size:13px">DAW에서 열기 (큐베이스·로직)</button>
           <input id="dawpath" placeholder="DAW 경로(선택, Mac은 앱 이름 예: Logic Pro)" style="margin-top:8px;width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px 10px;font-size:12px;font-family:var(--font)">
           <div class="note">비우면 OS 기본 연결 프로그램으로 all.mid를 엽니다. 큐베이스가 안 열리면 경로를 지정하세요. 로직(Mac)은 앱 이름만 넣으면 됩니다.</div>
+        </div>
+      </div>
+      <div class="player result hidden" id="preservePlayer"><h4>음색 유지본 (원곡 스템 정제)</h4><audio id="aPreserve" controls></audio>
+        <div style="margin-top:8px">
+          <a class="dl" id="dlPreserve" download="preserve.wav">음색 유지본 다운로드</a>
         </div>
       </div>
     </div>
@@ -203,6 +211,7 @@ document.addEventListener("click", async e=>{
 function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
+      compare:$("#compare").checked,
       qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
       pre_bass:$("#pre_bass").value,pre_drums:$("#pre_drums").value,pre_other:$("#pre_other").value,
@@ -219,6 +228,7 @@ function loadSettings(){
     if(!s||!Object.keys(s).length) return;
     if(s.daw!=null)$("#daw").checked=s.daw; if(s.six!=null)$("#six").checked=s.six; if(s.quant!=null)$("#quant").checked=s.quant;
     if(s.keysnap!=null)$("#keysnap").checked=s.keysnap;
+    if(s.compare!=null)$("#compare").checked=s.compare;
     if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
     ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
     if(s.gains){ ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{ if(s.gains[p]!=null&&$("#g_"+p)){$("#g_"+p).value=s.gains[p]; $("#gv_"+p).textContent=s.gains[p]+" dB";} }); }
@@ -246,6 +256,7 @@ $("#go").onclick=async()=>{
     fd.append("quantize", JSON.stringify({division:parseInt($("#qdiv").value,10), strength:parseFloat($("#qstr").value)}));
   }
   fd.append("keysnap", $("#keysnap").checked ? "true" : "false");
+  fd.append("compare", $("#compare").checked ? "true" : "false");
   if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
   if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
   const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});
@@ -281,6 +292,12 @@ function showResult(j){
   $("#done").classList.remove("hidden"); $("#go").disabled=false;
   const u=k=>"/api/file/"+jobId+"/"+k;
   $("#aOrig").src=u("original"); $("#aRes").src=u("result"); $("#dlRes").href=u("result");
+  if(j.compare){
+    $("#preservePlayer").classList.remove("hidden");
+    $("#aPreserve").src=u("result_preserve"); $("#dlPreserve").href=u("result_preserve");
+  } else {
+    $("#preservePlayer").classList.add("hidden");
+  }
   $("#dlDaw").style.display = j.daw ? "inline" : "none";
   if(j.daw) $("#dlDaw").href=u("daw");
   $("#dawopen").style.display = j.daw ? "block" : "none";

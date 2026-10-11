@@ -36,6 +36,10 @@ from . import export_daw
 PRESETS = {
     "instrumental": {"vocals": "skip", "drums": "retrack", "bass": "retrack", "other": "clean_keep"},
     "vocal": {"vocals": "clean_keep", "drums": "retrack", "bass": "retrack", "other": "clean_keep"},
+    # 음색 유지: 재연주 없이 분리 스템을 정제만 해서 원곡 음색 최대 보존(보컬 제외=연주곡)
+    "preserve": {"vocals": "skip", "drums": "clean_keep", "bass": "clean_keep", "other": "clean_keep"},
+    # 음색 유지(보컬 포함)
+    "preserve_vocal": {"vocals": "clean_keep", "drums": "clean_keep", "bass": "clean_keep", "other": "clean_keep"},
 }
 
 
@@ -109,7 +113,7 @@ def _maybe_keysnap(notes, report, keysnap_on):
 def run(input_path, out_dir, backend="auto", preset="instrumental",
         instrument_map=None, daw_export=False, six_stem=False, quantize=None,
         bpm_override=None, key_override=None, gains=None, keysnap=False,
-        progress_cb=None):
+        compare=False, progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
     retrack_dir = os.path.join(out_dir, "retrack")
@@ -161,14 +165,19 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     produced["bass"], bk = _render_melodic("bass", stem_paths["bass"], bass_notes, policy["bass"], sr, dur, instrument_map)
     report["vst_used"]["bass"] = bk
 
-    # drums (항상 전사)
+    # drums: 전사(재연주/내보내기용). preserve 정책이면 음색 유지로 분리 스템 정제.
     _progress(progress_cb, 60, "드럼 전사")
     drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
     drum_hits = _cl.dedup_drums(drum_hits)
     drum_hits = _maybe_quantize_drums(drum_hits, report, quantize)
     parts["drums"] = drum_hits
     im_d = (instrument_map or {}).get("drums")
-    if im_d and im_d.get("path"):
+    if policy.get("drums") == "clean_keep" and not (im_d and im_d.get("path")):
+        # 음색 유지: 원본 드럼 스템 정제해 사용
+        produced["drums"] = np.asarray(mst.clean_instrument(_load(stem_paths["drums"], sr), sr, bright=False),
+                                       dtype=np.float32)
+        report["vst_used"]["drums"] = "clean_keep"
+    elif im_d and im_d.get("path"):
         try:
             # 드럼은 GM 노트로 변환해 VST에 전달
             dn = [{"start": h["time"], "end": h["time"] + 0.1,
@@ -258,6 +267,27 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     result_path = os.path.join(out_dir, "result.wav")
     sf.write(result_path, np.asarray(result, dtype=np.float32), sr)
 
+    # 비교 모드: 같은 분리/분석으로 '음색 유지본'(재연주 없이 분리 스템 정제)도 함께 렌더
+    preserve_path = None
+    if compare:
+        _progress(progress_cb, 92, "음색 유지본 렌더(비교용)")
+        keep_vocals = policy.get("vocals") == "clean_keep"
+        preserve_mix = {}
+        for nm, p in stem_paths.items():
+            if nm == "vocals" and not keep_vocals:
+                continue
+            ys = _load(p, sr)
+            if nm == "vocals":
+                preserve_mix[nm] = np.asarray(mst.clean_vocal(ys, sr), dtype=np.float32)
+            elif nm == "drums":
+                preserve_mix[nm] = np.asarray(mst.clean_instrument(ys, sr, bright=False), dtype=np.float32)
+            else:
+                preserve_mix[nm] = np.asarray(mst.clean_instrument(ys, sr), dtype=np.float32)
+        preserve_result = mst.mix_and_master(preserve_mix, sr, gains=gains)
+        preserve_path = os.path.join(out_dir, "result_preserve.wav")
+        sf.write(preserve_path, np.asarray(preserve_result, dtype=np.float32), sr)
+        report["compare"] = True
+
     daw_zip = None
     if daw_export:
         _progress(progress_cb, 95, "DAW 내보내기 패키지 생성 (스템+MIDI)")
@@ -267,8 +297,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         json.dump(report, f, ensure_ascii=False, indent=2)
 
     _progress(progress_cb, 100, "완료")
-    return {"result": result_path, "report": report, "stems": stem_paths,
-            "retrack_dir": retrack_dir, "daw_zip": daw_zip}
+    return {"result": result_path, "result_preserve": preserve_path, "report": report,
+            "stems": stem_paths, "retrack_dir": retrack_dir, "daw_zip": daw_zip}
 
 
 if __name__ == "__main__":
