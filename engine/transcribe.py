@@ -78,16 +78,25 @@ def transcribe_drums(y, sr):
     """
     온셋별 드럼 분류. kick/snare/hat 외에 tom/crash 세분화.
     스펙트럴 센트로이드 + 저역/고역 에너지 비율 + 감쇠 길이로 판별.
+
+    - 맨 앞(t≈0) 온셋을 놓치지 않도록 앞에 짧은 무음을 패딩해 검출(그 뒤 시간 보정).
+    - 고역 그룹(hat/snare/crash)은 센트로이드만으로 가르면 밝은 스네어를 하이햇으로
+      오분류하므로 감쇠 길이 + 고역 비율로 구분한다.
     """
     hop = 256
-    onset_frames = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop, backtrack=True)
-    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop)
-    cent = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop)[0]
-    rms = librosa.feature.rms(y=y, hop_length=hop)[0]
-    # 대역 에너지(저역 <150Hz, 고역 >6kHz)
-    S = np.abs(librosa.stft(y, hop_length=hop))
+    pad_s = 0.1                     # 앞 100ms 무음 패딩 → 시작 지점 온셋 검출 보장
+    pad_n = int(pad_s * sr)
+    yp = np.concatenate([np.zeros(pad_n, dtype=y.dtype), y])
+
+    onset_frames = librosa.onset.onset_detect(y=yp, sr=sr, hop_length=hop, backtrack=True)
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop) - pad_s
+    cent = librosa.feature.spectral_centroid(y=yp, sr=sr, hop_length=hop)[0]
+    rms = librosa.feature.rms(y=yp, hop_length=hop)[0]
+    # 대역 에너지(저역 <150Hz, 중역 200~3kHz=스네어 몸통, 고역 >6kHz)
+    S = np.abs(librosa.stft(yp, hop_length=hop))
     freqs = librosa.fft_frequencies(sr=sr)
     low_e = S[freqs < 150].sum(axis=0)
+    mid_e = S[(freqs >= 200) & (freqs <= 3000)].sum(axis=0)
     high_e = S[freqs > 6000].sum(axis=0)
     total_e = S.sum(axis=0) + 1e-9
     emax = float(rms.max() or 1e-9)
@@ -109,21 +118,33 @@ def transcribe_drums(y, sr):
         fi = min(f, len(cent) - 1)
         c = cent[fi]
         lo = low_e[fi] / total_e[fi]
+        md = mid_e[fi] / total_e[fi]
         hi = high_e[fi] / total_e[fi]
         dec = decay_frames(f)
-
-        if lo > 0.35 and c < 300:
-            drum = "kick"
-        elif hi > 0.45 and dec > 25:
-            drum = "crash"            # 고역 풍부 + 긴 감쇠
-        elif c > 4500 and dec <= 20:
-            drum = "hat"              # 고역 + 짧은 감쇠
-        elif 150 <= c < 800 and lo > 0.15:
-            drum = "tom"              # 중저역 피치성
-        elif c < 3500:
-            drum = "snare"
-        else:
-            drum = "hat"
         vel = int(np.clip(90 * (rms[min(f, len(rms) - 1)] / emax) + 30, 20, 127))
-        hits.append({"time": float(t), "drum": drum, "vel": vel})
+        tt = float(max(0.0, t))
+
+        # 한 온셋에 여러 악기가 동시 타격될 수 있어 다중 라벨로 분해한다.
+        labels = []
+        if c < 800:
+            # 저역 중심: kick 또는 tom(피치성·긴 감쇠). 그 위에 올라탄 밝은 햇은 별도.
+            if 150 <= c and 0.12 < lo <= 0.45 and dec > 20:
+                labels.append("tom")
+            else:
+                labels.append("kick")
+            if hi > 0.35 and md < 0.09:
+                labels.append("hat")
+        else:
+            # 고역 중심: hat / snare / crash 중 주 음색 하나 + 밑에 깔린 kick
+            if dec > 25 and hi > 0.5:
+                labels.append("crash")
+            elif md > 0.09:
+                labels.append("snare")   # 중역 몸통 있음
+            else:
+                labels.append("hat")     # 몸통 거의 없는 고역 트랜지언트
+            if lo > 0.08:
+                labels.append("kick")    # 밑에 깔린 킥
+
+        for d in labels:
+            hits.append({"time": tt, "drum": d, "vel": vel})
     return hits
