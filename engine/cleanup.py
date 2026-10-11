@@ -29,10 +29,13 @@ def merge_adjacent(notes, gap_tol=0.03):
     return out
 
 
-def fix_octave_spikes(notes, win=5):
+def fix_octave_spikes(notes, win=2):
     """
-    한 음이 주변 median에서 ±12(±1옥타브) 근처로 튄 경우, 주변 median 옥타브로 당김.
-    선율의 진짜 옥타브 도약은 보통 연속 유지되므로, 고립된 1음 스파이크만 교정.
+    '주변이 한 음으로 안정적인데 한 음만 ±1옥타브로 튄' 진짜 글리치만 교정한다.
+
+    교대(E1↔E2)·옥타브 도약 같은 정상 선율을 망가뜨리지 않도록 보수적으로:
+    인접한 최대 4개 이웃 중 과반(>=3)이 한 음(±1반음)으로 모일 때만 그 음을 '지배음'으로
+    보고, 현재 음이 지배음에서 ±(11~13)반음이면 지배음 옥타브로 당긴다. 그 외는 그대로 둔다.
     """
     if len(notes) < 3:
         return notes
@@ -42,16 +45,21 @@ def fix_octave_spikes(notes, win=5):
     for i, n in enumerate(ns):
         lo = max(0, i - win); hi = min(len(midis), i + win + 1)
         neigh = midis[lo:i] + midis[i + 1:hi]
-        if not neigh:
-            out.append(dict(n)); continue
-        med = int(np.median(neigh))
-        diff = n["midi"] - med
-        # ±1옥타브(±(12±1)) 근처로 고립되게 튄 경우만 교정
-        if 11 <= abs(diff) <= 13:
-            octs = round(diff / 12.0)
-            m = dict(n); m["midi"] = n["midi"] - 12 * octs
-            out.append(m)
-        else:
+        corrected = False
+        if len(neigh) >= 2:
+            # 이웃 중 ±1반음 내로 가장 많이 모이는 음(지배음)과 그 표수
+            best_pitch, best_count = None, 0
+            for cand in neigh:
+                cnt = sum(1 for m in neigh if abs(m - cand) <= 1)
+                if cnt > best_count:
+                    best_count, best_pitch = cnt, cand
+            # 이웃 중 3개 이상이 한 음(±1반음)으로 모일 때만 지배음으로 인정(경계 오교정 방지)
+            dominant = best_count >= 3
+            if dominant and best_pitch is not None and 11 <= abs(n["midi"] - best_pitch) <= 13:
+                octs = round((n["midi"] - best_pitch) / 12.0)
+                m = dict(n); m["midi"] = n["midi"] - 12 * octs
+                out.append(m); corrected = True
+        if not corrected:
             out.append(dict(n))
     return out
 
