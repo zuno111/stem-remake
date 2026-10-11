@@ -94,6 +94,9 @@
       <label class="chk"><input type="checkbox" id="six"> 6스템 분리 (기타·피아노 따로 분리)</label>
     </div>
     <div class="row" style="margin-top:10px">
+      <label class="chk"><input type="checkbox" id="keysnap"> 키 보정 (전사 음을 감지된 스케일에 맞춰 당김)</label>
+    </div>
+    <div class="row" style="margin-top:10px">
       <label class="chk"><input type="checkbox" id="quant"> 박자 그리드 양자화 (전사 타이밍을 박자에 맞춤)</label>
       <span class="label">분할</span>
       <select id="qdiv" class="qsel">
@@ -200,7 +203,7 @@ document.addEventListener("click", async e=>{
 function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
-      qdiv:$("#qdiv").value,qstr:$("#qstr").value,
+      qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
       pre_bass:$("#pre_bass").value,pre_drums:$("#pre_drums").value,pre_other:$("#pre_other").value,
       prg_bass:$("#prg_bass").value,prg_drums:$("#prg_drums").value,prg_other:$("#prg_other").value,
@@ -215,6 +218,7 @@ function loadSettings(){
     const s=JSON.parse(localStorage.getItem("stemremake_settings")||"{}");
     if(!s||!Object.keys(s).length) return;
     if(s.daw!=null)$("#daw").checked=s.daw; if(s.six!=null)$("#six").checked=s.six; if(s.quant!=null)$("#quant").checked=s.quant;
+    if(s.keysnap!=null)$("#keysnap").checked=s.keysnap;
     if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
     ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
     if(s.gains){ ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{ if(s.gains[p]!=null&&$("#g_"+p)){$("#g_"+p).value=s.gains[p]; $("#gv_"+p).textContent=s.gains[p]+" dB";} }); }
@@ -241,6 +245,7 @@ $("#go").onclick=async()=>{
   if($("#quant").checked){
     fd.append("quantize", JSON.stringify({division:parseInt($("#qdiv").value,10), strength:parseFloat($("#qstr").value)}));
   }
+  fd.append("keysnap", $("#keysnap").checked ? "true" : "false");
   if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
   if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
   const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});

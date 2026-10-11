@@ -97,9 +97,18 @@ def _maybe_quantize_drums(hits, report, quant):
                              division=quant.get("division", 4), strength=quant.get("strength", 0.9))
 
 
+def _maybe_keysnap(notes, report, keysnap_on):
+    if not keysnap_on or not notes:
+        return notes
+    from . import keysnap as ks
+    snapped, _ = ks.snap_notes(notes, report.get("key", "C"), report.get("mode", "major"),
+                               strength=1.0, max_shift=1)
+    return snapped
+
+
 def run(input_path, out_dir, backend="auto", preset="instrumental",
         instrument_map=None, daw_export=False, six_stem=False, quantize=None,
-        bpm_override=None, key_override=None, gains=None,
+        bpm_override=None, key_override=None, gains=None, keysnap=False,
         progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
@@ -133,6 +142,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     report["policy"] = policy
     report["six_stem"] = bool(stem_paths.get("guitar") or stem_paths.get("piano"))
     report["quantize"] = quantize or None
+    report["keysnap"] = bool(keysnap)
     report["vst_used"] = {}
 
     _progress(progress_cb, 40, f"분석: BPM {report['bpm']}, Key {report['key']} {report['mode']}")
@@ -143,6 +153,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     # bass (항상 전사)
     _progress(progress_cb, 50, "베이스 전사")
     bass_notes = tr.transcribe_mono(_load(stem_paths["bass"], sr), sr, fmin=41, fmax=400)
+    bass_notes = _maybe_keysnap(bass_notes, report, keysnap)
     bass_notes = _maybe_quantize_notes(bass_notes, report, quantize)
     parts["bass"] = bass_notes
     produced["bass"], bk = _render_melodic("bass", stem_paths["bass"], bass_notes, policy["bass"], sr, dur, instrument_map)
@@ -185,6 +196,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             _progress(progress_cb, 70, "기타외 전사 (단선율)")
             other_notes = tr.transcribe_mono(yo, sr, fmin=80, fmax=2000)
             report["other_transcribe"] = "mono"
+        other_notes = _maybe_keysnap(other_notes, report, keysnap)
         other_notes = _maybe_quantize_notes(other_notes, report, quantize)
         parts["other"] = other_notes
     if pol_other != "skip":
@@ -205,6 +217,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                 en = trp.transcribe_polyphonic(ye, sr)
             else:
                 en = tr.transcribe_mono(ye, sr, fmin=60, fmax=2000)
+            en = _maybe_keysnap(en, report, keysnap)
             en = _maybe_quantize_notes(en, report, quantize)
             parts[extra] = en
         im_e = (instrument_map or {}).get(extra)
@@ -262,4 +275,4 @@ if __name__ == "__main__":
     six = "--6stem" in args
     quant = {"division": 4, "strength": 0.85} if "--quantize" in args else None
     run(args[0], args[1], backend=backend, preset=preset, daw_export=daw,
-        six_stem=six, quantize=quant)
+        six_stem=six, quantize=quant, keysnap=("--keysnap" in args))
