@@ -12,11 +12,13 @@ import numpy as np
 import librosa
 
 
-def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08, conf_thresh=0.45):
+def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08, conf_thresh=0.1):
     """pYIN 단선율 전사. 베이스/리드 멜로디용.
 
     conf_thresh: pYIN voiced_prob(유성음 신뢰도) 하한. 이 값 미만 프레임은 전사에서 제외해
     노이즈/무성 구간의 유령 음을 줄인다. 0이면 신뢰도 게이트 끔.
+    주의: 저역(베이스)은 pYIN 신뢰도가 본래 낮으므로(0.2~0.5) 기본값을 낮게 둔다.
+    pYIN의 voiced 플래그가 이미 노이즈를 걸러주어, 이 게이트는 경계 프레임만 보수적으로 제거한다.
     """
     # fmin에서 두 주기 이상 들어가도록 frame_length 확보(저역 정확도)
     frame_length = max(2048, int(2 ** np.ceil(np.log2(2.5 * sr / fmin))))

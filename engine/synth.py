@@ -16,15 +16,22 @@ def _midi_to_hz(m):
 
 def _adsr(n, sr, a=0.005, d=0.05, s=0.7, r=0.08):
     env = np.ones(n)
-    ai, di, ri = int(a * sr), int(d * sr), int(r * sr)
-    ai, di, ri = min(ai, n), min(di, n), min(ri, n)
+    if n <= 0:
+        return env
+    # 짧은 노트에서도 ai+di+ri <= n 보장(독립 클램프 시 합이 n 초과 → 브로드캐스트 오류)
+    ai = min(int(a * sr), n)
+    ri = min(int(r * sr), n - ai)
+    di = min(int(d * sr), n - ai - ri)
     if ai:
         env[:ai] = np.linspace(0, 1, ai)
     if di:
         env[ai:ai + di] = np.linspace(1, s, di)
-    env[ai + di:n - ri] = s
+    sus_end = n - ri
+    if sus_end > ai + di:
+        env[ai + di:sus_end] = s
     if ri:
-        env[n - ri:] = np.linspace(env[max(n - ri - 1, 0)], 0, ri)
+        start_val = env[sus_end - 1] if sus_end > 0 else s
+        env[sus_end:] = np.linspace(start_val, 0, ri)
     return env
 
 
