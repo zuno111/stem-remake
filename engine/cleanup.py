@@ -73,6 +73,34 @@ def clean_mono(notes, min_dur=0.09, gap_tol=0.03, fix_octave=True):
     return out
 
 
+def remove_octave_overtones(notes, vel_margin=25, overlap_tol=0.05):
+    """다성 전사의 옥타브 배음 유령음 제거(보수적).
+
+    현재 음이, 시간상 겹치는 더 낮은 음(기음)에서 정확히 +12/+24 반음 위이고
+    벨로시티가 vel_margin 이상 낮으면 배음 유령으로 보고 제거한다.
+    실제 옥타브 중복(기음과 비슷한 세기)이나 비옥타브 음은 건드리지 않는다.
+    """
+    if len(notes) < 2:
+        return notes
+    out = []
+    for n in notes:
+        ns, ne, nm, nv = n["start"], n["end"], n["midi"], n.get("vel", 90)
+        is_overtone = False
+        for m in notes:
+            if m is n:
+                continue
+            # 시간 겹침
+            if min(ne, m["end"]) - max(ns, m["start"]) <= overlap_tol:
+                continue
+            d = nm - m["midi"]
+            if d in (12, 24) and m.get("vel", 90) - nv >= vel_margin:
+                is_overtone = True
+                break
+        if not is_overtone:
+            out.append(dict(n))
+    return out
+
+
 def dedup_drums(hits, min_gap=0.04):
     """같은 드럼 종류가 min_gap 이내 연속되면 뒤엣것 제거(중복 온셋)."""
     if not hits:
