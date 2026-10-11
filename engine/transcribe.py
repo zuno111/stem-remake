@@ -73,7 +73,38 @@ def transcribe_mono(y, sr, fmin=41.0, fmax=2000.0, min_dur=0.08, conf_thresh=0.1
             continue
         vel = int(np.clip(90 * (np.mean(n["_e"]) / emax) + 30, 20, 127))
         out.append({"start": n["start"], "end": n["end"], "midi": n["midi"], "vel": vel})
+
+    # 온셋 정렬: pYIN은 피치 확정에 몇 프레임 걸려 시작이 ~30ms 늦게 잡힌다.
+    # 각 음의 시작을 바로 앞의 실제 에너지 어택으로 당겨 그루브 타이밍을 맞춘다.
+    out = _align_onsets(out, y, sr, hop, back=0.06, fwd=0.02)
     return out
+
+
+def _align_onsets(notes, y, sr, hop, back=0.06, fwd=0.02):
+    """각 음의 start를 근처(앞 back초~뒤 fwd초)의 에너지 온셋으로 스냅."""
+    if not notes:
+        return notes
+    try:
+        pad_s = 0.1
+        yp = np.concatenate([np.zeros(int(pad_s * sr), dtype=y.dtype), y])
+        onsets = librosa.onset.onset_detect(y=yp, sr=sr, hop_length=hop,
+                                            backtrack=True, units="time") - pad_s
+        onsets = onsets[onsets >= -0.02]
+    except Exception:
+        return notes
+    if len(onsets) == 0:
+        return notes
+    onsets = np.asarray(onsets)
+    for n in notes:
+        s = n["start"]
+        lo, hi = s - back, s + fwd
+        cand = onsets[(onsets >= lo) & (onsets <= hi)]
+        if len(cand):
+            # 가장 가까운 온셋으로 당기되, 음 길이가 양수로 유지될 때만
+            new_s = float(cand[np.argmin(np.abs(cand - s))])
+            if new_s < n["end"] - 0.01:
+                n["start"] = new_s
+    return notes
 
 
 def transcribe_drums(y, sr):
