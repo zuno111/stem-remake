@@ -152,7 +152,9 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
 
     # bass (항상 전사)
     _progress(progress_cb, 50, "베이스 전사")
+    from . import cleanup as _cl
     bass_notes = tr.transcribe_mono(_load(stem_paths["bass"], sr), sr, fmin=41, fmax=400)
+    bass_notes = _cl.clean_mono(bass_notes)
     bass_notes = _maybe_keysnap(bass_notes, report, keysnap)
     bass_notes = _maybe_quantize_notes(bass_notes, report, quantize)
     parts["bass"] = bass_notes
@@ -162,6 +164,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     # drums (항상 전사)
     _progress(progress_cb, 60, "드럼 전사")
     drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
+    drum_hits = _cl.dedup_drums(drum_hits)
     drum_hits = _maybe_quantize_drums(drum_hits, report, quantize)
     parts["drums"] = drum_hits
     im_d = (instrument_map or {}).get("drums")
@@ -196,6 +199,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             _progress(progress_cb, 70, "기타외 전사 (단선율)")
             other_notes = tr.transcribe_mono(yo, sr, fmin=80, fmax=2000)
             report["other_transcribe"] = "mono"
+        other_notes = _cl.clean_mono(other_notes, fix_octave=False)
         other_notes = _maybe_keysnap(other_notes, report, keysnap)
         other_notes = _maybe_quantize_notes(other_notes, report, quantize)
         parts["other"] = other_notes
@@ -217,6 +221,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                 en = trp.transcribe_polyphonic(ye, sr)
             else:
                 en = tr.transcribe_mono(ye, sr, fmin=60, fmax=2000)
+            en = _cl.clean_mono(en, fix_octave=False)
             en = _maybe_keysnap(en, report, keysnap)
             en = _maybe_quantize_notes(en, report, quantize)
             parts[extra] = en
