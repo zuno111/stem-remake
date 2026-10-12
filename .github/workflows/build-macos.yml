@@ -56,6 +56,7 @@ jobs:
           echo "size:"; ls -la ./StemRemake
           rm -f stemremake_error.log stemremake_url.txt out.log err.log
           export STEMREMAKE_PORT=8777
+          export STEMREMAKE_NO_BROWSER=1
           ./StemRemake >out.log 2>err.log &
           PID=$!
           ok=0

@@ -6,7 +6,9 @@ from PyInstaller.utils.hooks import collect_all
 datas, binaries, hiddenimports = [], [], []
 
 # 무거운 패키지는 데이터·바이너리·서브모듈을 통째로 수집
+# numpy를 명시적으로 먼저 수집 — 미포함 시 numpy._core._exceptions 누락으로 시작 크래시
 for pkg in [
+    "numpy",
     "librosa", "soundfile", "pedalboard", "pretty_midi", "mido",
     "demucs", "torch", "torchaudio", "julius", "openunmix",
     "dora", "lameenc", "einops", "scipy", "audioread",

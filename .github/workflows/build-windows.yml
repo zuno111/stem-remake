@@ -60,6 +60,7 @@ jobs:
           Write-Host "exe size:" (Get-Item ".\StemRemake.exe").Length
           # 포트 고정 후 실제로 실행해서 서버가 응답하는지 확인(창 사라짐/시작 크래시 탐지)
           $env:STEMREMAKE_PORT = "8777"
+          $env:STEMREMAKE_NO_BROWSER = "1"
           Remove-Item stemremake_error.log,stemremake_url.txt,out.log,err.log -ErrorAction SilentlyContinue
           $p = Start-Process -FilePath ".\StemRemake.exe" -PassThru -NoNewWindow `
                -RedirectStandardOutput out.log -RedirectStandardError err.log

@@ -69,12 +69,34 @@ def _run():
         except Exception:
             pass
 
-    threading.Thread(target=open_browser, daemon=True).start()
+    # 헤드리스(CI 스모크 테스트 등)에서는 브라우저 자동 열기 생략
+    if os.environ.get("STEMREMAKE_NO_BROWSER") != "1":
+        threading.Thread(target=open_browser, daemon=True).start()
     print("=" * 52)
     print("  스템 리메이크 실행 중")
     print(f"  브라우저에서 열기: {url}")
     print("  이 창을 닫으면 종료됩니다.")
     print("=" * 52, flush=True)
+
+    # 자가 진단 모드: 서버를 띄우고 스스로 접속 확인 후 종료(CI/로컬 검증용)
+    if os.environ.get("STEMREMAKE_SELFTEST") == "1":
+        import urllib.request
+        from waitress.server import create_server
+        srv = create_server(app, host="127.0.0.1", port=port, threads=4)
+        threading.Thread(target=srv.run, daemon=True).start()
+        import time
+        ok = False
+        for _ in range(20):
+            time.sleep(0.5)
+            try:
+                r = urllib.request.urlopen(url, timeout=2)
+                if r.status == 200:
+                    ok = True
+                    break
+            except Exception:
+                pass
+        print(f"SELFTEST {'PASS' if ok else 'FAIL'} url={url}", flush=True)
+        os._exit(0 if ok else 2)
 
     from waitress import serve
     serve(app, host="127.0.0.1", port=port, threads=4)
