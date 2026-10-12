@@ -26,7 +26,8 @@
   /* main */
   #main{flex:1;display:flex;min-height:0}
   #tracks{flex:1;overflow:auto;position:relative}
-  .trk{display:flex;border-bottom:1px solid var(--line);height:96px}
+  .trk{display:flex;border-bottom:1px solid var(--line);height:110px}
+  canvas.tmeter{width:100%;height:6px;background:#0b0c10;border-radius:3px;display:block}
   .thead{width:230px;min-width:230px;background:var(--panel);border-right:1px solid var(--line);padding:8px 10px;display:flex;flex-direction:column;gap:4px}
   .tname{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .trow{display:flex;align-items:center;gap:6px}
@@ -61,9 +62,24 @@
     <span class="sp"></span>
     <span class="lbl">마스터</span>
     <input type="range" id="master" min="0" max="1.5" step="0.01" value="1" style="width:120px">
+    <canvas id="masterMeter" width="80" height="14" title="마스터 레벨" style="background:#0b0c10;border:1px solid var(--line);border-radius:4px"></canvas>
     <button class="tbtn" id="btnEdit">편집</button>
     <button class="tbtn" id="btnPiano">피아노롤</button>
     <button class="tbtn" id="btnExport">내보내기(WAV)</button>
+  </div>
+  <div id="toolbar2" style="display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap">
+    <span class="lbl">줌</span>
+    <button class="mini" id="zoomOut">−</button><button class="mini" id="zoomIn">+</button>
+    <label class="lbl" style="display:flex;gap:4px;align-items:center;margin-left:8px"><input type="checkbox" id="snap">그리드 스냅</label>
+    <span class="sp" style="width:16px"></span>
+    <span class="lbl">마스터:</span>
+    <label class="lbl" style="display:flex;gap:3px;align-items:center"><input type="checkbox" id="mOn" checked>버스</label>
+    <span class="knob" style="width:120px"><span>Lo</span><input type="range" id="mLo" min="-12" max="12" step="0.5" value="0"></span>
+    <span class="knob" style="width:120px"><span>Mid</span><input type="range" id="mMid" min="-12" max="12" step="0.5" value="0"></span>
+    <span class="knob" style="width:120px"><span>Hi</span><input type="range" id="mHi" min="-12" max="12" step="0.5" value="0"></span>
+    <label class="lbl" style="display:flex;gap:3px;align-items:center"><input type="checkbox" id="mComp" checked>컴프</label>
+    <label class="lbl" style="display:flex;gap:3px;align-items:center"><input type="checkbox" id="mLimit" checked>리미터</label>
+    <label class="lbl" style="display:flex;gap:3px;align-items:center"><input type="checkbox" id="mNorm">노멀라이즈(-1dB)</label>
   </div>
   <div id="ruler">
     <div id="rulerSpacer"></div>
@@ -99,10 +115,39 @@ const DAW={
   ctx:null, master:null, tracks:[], duration:0, pxPerSec:80,
   playing:false, startCtxTime:0, startPos:0, playhead:0, raf:null,
   loop:false, loopA:0, loopB:0, bpm:null,
+  mcfg:{on:true,hpf:30,lo:0,mid:0,hi:0,comp:true,limit:true,normalize:false},
   init(){
     this.ctx=new (window.AudioContext||window.webkitAudioContext)();
-    this.master=this.ctx.createGain(); this.master.gain.value=1; this.master.connect(this.ctx.destination);
+    this.master=this.ctx.createGain(); this.master.gain.value=1;
+    const m=this._makeMaster(this.ctx); this.mnodes=m;
+    this.master.connect(m.hpf);
+    this.mAnalyser=this.ctx.createAnalyser(); this.mAnalyser.fftSize=1024;
+    m.out.connect(this.mAnalyser); this.mAnalyser.connect(this.ctx.destination);
+    this.applyMaster();
+    this._startMeters();
   },
+  _makeMaster(ctx){
+    const hpf=ctx.createBiquadFilter(); hpf.type="highpass"; hpf.frequency.value=30;
+    const lo=ctx.createBiquadFilter(); lo.type="lowshelf"; lo.frequency.value=120;
+    const mid=ctx.createBiquadFilter(); mid.type="peaking"; mid.frequency.value=2500; mid.Q.value=0.8;
+    const hi=ctx.createBiquadFilter(); hi.type="highshelf"; hi.frequency.value=9000;
+    const comp=ctx.createDynamicsCompressor();
+    const limit=ctx.createDynamicsCompressor();
+    hpf.connect(lo); lo.connect(mid); mid.connect(hi); hi.connect(comp); comp.connect(limit);
+    return {hpf,lo,mid,hi,comp,limit,out:limit};
+  },
+  _cfgMaster(n,cfg){
+    const on=cfg.on;
+    n.hpf.frequency.value = on? cfg.hpf : 10;
+    n.lo.gain.value = on? cfg.lo : 0;
+    n.mid.gain.value = on? cfg.mid : 0;
+    n.hi.gain.value = on? cfg.hi : 0;
+    if(on && cfg.comp){ n.comp.threshold.value=-16; n.comp.ratio.value=2.2; n.comp.attack.value=0.012; n.comp.release.value=0.18; n.comp.knee.value=6; }
+    else { n.comp.threshold.value=0; n.comp.ratio.value=1; }
+    if(on && cfg.limit){ n.limit.threshold.value=-1; n.limit.ratio.value=20; n.limit.attack.value=0.002; n.limit.release.value=0.1; n.limit.knee.value=0; }
+    else { n.limit.threshold.value=0; n.limit.ratio.value=1; }
+  },
+  applyMaster(){ if(this.mnodes) this._cfgMaster(this.mnodes,this.mcfg); },
   async addTrack(name, url){
     const resp=await fetch(url); const ab=await resp.arrayBuffer();
     const buf=await this.ctx.decodeAudioData(ab);
@@ -117,6 +162,7 @@ const DAW={
     t.hi.type="highshelf"; t.hi.frequency.value=6000; t.hi.gain.value=0;
     // chain: (source)->lo->mid->hi->pan->fx(엔벌로프)->gain(vol/mute/solo)->master
     t.lo.connect(t.mid); t.mid.connect(t.hi); t.hi.connect(t.pan); t.pan.connect(t.fx); t.fx.connect(t.gain); t.gain.connect(this.master);
+    t.analyser=this.ctx.createAnalyser(); t.analyser.fftSize=512; t.gain.connect(t.analyser); t.meterCanvas=null;
     this.tracks.push(t);
     this.duration=Math.max(this.duration, buf.duration);
     return t;
@@ -189,7 +235,9 @@ const DAW={
     this.playing=false; if(this.raf) cancelAnimationFrame(this.raf);
   },
   stop(){ this.pause(); this.playhead=0; this._drawPlayhead(); this._updTime(); },
-  seek(pos){ const was=this.playing; this.pause(); this.playhead=Math.max(0,Math.min(pos,this.duration)); if(was) this.play(); else {this._drawPlayhead();this._updTime();} },
+  snapOn:false,
+  snap(tt){ if(!this.snapOn||!this.bpm) return tt; const beat=60/this.bpm/2; return Math.round(tt/beat)*beat; },  // 8분음표 그리드
+  seek(pos){ pos=this.snap(pos); const was=this.playing; this.pause(); this.playhead=Math.max(0,Math.min(pos,this.duration)); if(was) this.play(); else {this._drawPlayhead();this._updTime();} },
   setVol(t,v){ t.vol=v; this._applyGains(); },
   toggleMute(t){ t.muted=!t.muted; this._applyGains(); },
   toggleSolo(t){ t.soloed=!t.soloed; this._applyGains(); },
@@ -203,11 +251,33 @@ const DAW={
     const p=this.playhead; const m=Math.floor(p/60); const s=(p%60);
     $("#time").textContent=`${m}:${s.toFixed(1).padStart(4,"0")}`;
   },
-  // 오프라인 렌더(현재 믹스 그대로 wav)
+  _peak(analyser,buf){ analyser.getFloatTimeDomainData(buf); let p=0; for(let i=0;i<buf.length;i++){const a=Math.abs(buf[i]); if(a>p)p=a;} return p; },
+  _drawMeter(canvas,level){
+    if(!canvas) return; const g=canvas.getContext("2d");
+    const w=canvas.width,h=canvas.height; g.clearRect(0,0,w,h);
+    const lv=Math.min(1,level); const ww=lv*w;
+    const grd=g.createLinearGradient(0,0,w,0); grd.addColorStop(0,"#4ade80"); grd.addColorStop(0.75,"#e9d44a"); grd.addColorStop(1,"#f05e5e");
+    g.fillStyle=grd; g.fillRect(0,0,ww,h);
+  },
+  _startMeters(){
+    const mbuf=new Float32Array(this.mAnalyser.fftSize);
+    const loop=()=>{
+      // 마스터
+      const mc=document.getElementById("masterMeter");
+      if(mc){ this._drawMeter(mc, this._peak(this.mAnalyser,mbuf)); }
+      // 트랙
+      for(const t of this.tracks){ if(t.analyser&&t.meterCanvas){ if(!t._mbuf)t._mbuf=new Float32Array(t.analyser.fftSize); this._drawMeter(t.meterCanvas,this._peak(t.analyser,t._mbuf)); } }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  },
+  // 오프라인 렌더(현재 믹스 그대로 wav, 마스터 버스 포함)
   async render(){
     const sr=this.ctx.sampleRate; const len=Math.ceil((this.duration||1)*sr);
     const off=new OfflineAudioContext(2,len,sr);
-    const master=off.createGain(); master.gain.value=this.master.gain.value; master.connect(off.destination);
+    const master=off.createGain(); master.gain.value=this.master.gain.value;
+    const mn=this._makeMaster(off); this._cfgMaster(mn,this.mcfg);
+    master.connect(mn.hpf); mn.out.connect(off.destination);
     const solo=this._anySolo();
     for(const t of this.tracks){
       const audible=t.muted?false:(solo?t.soloed:true); if(!audible) continue;
@@ -226,6 +296,10 @@ const DAW={
       s.start(t.clipStart, t.clipStart); try{ s.stop(t.clipEnd); }catch(e){}
     }
     const rendered=await off.startRendering();
+    if(this.mcfg.normalize){
+      let pk=0; for(let c=0;c<rendered.numberOfChannels;c++){ const d=rendered.getChannelData(c); for(let i=0;i<d.length;i+=13){ const a=Math.abs(d[i]); if(a>pk)pk=a; } }
+      if(pk>0){ const g=0.891/pk; for(let c=0;c<rendered.numberOfChannels;c++){ const d=rendered.getChannelData(c); for(let i=0;i<d.length;i++) d[i]*=g; } }
+    }
     return rendered;
   }
 };
@@ -266,6 +340,7 @@ function buildTrackRow(t,idx){
   row.innerHTML=`
     <div class="thead">
       <div class="tname">${t.name}</div>
+      <canvas class="tmeter"></canvas>
       <div class="trow">
         <button class="mini m" title="뮤트">M</button>
         <button class="mini s" title="솔로">S</button>
@@ -287,8 +362,9 @@ function buildTrackRow(t,idx){
   row.querySelector(".kv").oninput=e=>DAW.setVol(t,+e.target.value);
   row.querySelector(".kp").oninput=e=>DAW.setPan(t,+e.target.value);
   row.querySelectorAll(".ke").forEach(el=>el.oninput=e=>DAW.setEq(t,el.dataset.b,+e.target.value));
-  const lane=row.querySelector(".lane"); const canvas=row.querySelector("canvas");
+  const lane=row.querySelector(".lane"); const canvas=row.querySelector(".lane canvas");
   t.lane=lane; t.canvas=canvas;
+  const mc=row.querySelector(".tmeter"); if(mc){ mc.width=206; mc.height=6; t.meterCanvas=mc; }
   lane.style.width=Math.max(DAW.duration*DAW.pxPerSec,300)+"px";
   setTimeout(()=>drawLane(t),0);
   // 마우스: 편집모드면 트림/페이드/오토메이션 핸들, 아니면 재생위치 이동
@@ -313,7 +389,7 @@ function buildTrackRow(t,idx){
     drawLane(t); e.preventDefault();
   };
   lane.onmousemove=e=>{
-    if(!drag) return; const {x,y,h}=px(e); const pxs=DAW.pxPerSec; const tt=x/pxs;
+    if(!drag) return; const {x,y,h}=px(e); const pxs=DAW.pxPerSec; const tt=DAW.snap(x/pxs);
     if(drag.mode==="trimL") t.clipStart=Math.max(0,Math.min(tt,t.clipEnd-0.05));
     else if(drag.mode==="trimR") t.clipEnd=Math.min(t.buffer.duration,Math.max(tt,t.clipStart+0.05));
     else if(drag.mode==="fadeIn") t.fadeIn=Math.max(0,Math.min(tt-t.clipStart, t.clipEnd-t.clipStart));
@@ -411,6 +487,35 @@ $("#btnExport").onclick=async()=>{
 };
 $("#tracks").addEventListener("scroll",()=>{drawRuler();DAW._drawPlayhead();});
 window.addEventListener("resize",drawRuler);
+
+// 마스터 버스 컨트롤
+function bindMaster(){
+  const set=(k,v)=>{ DAW.mcfg[k]=v; DAW.applyMaster(); };
+  $("#mOn").onchange=e=>set("on",e.target.checked);
+  $("#mComp").onchange=e=>set("comp",e.target.checked);
+  $("#mLimit").onchange=e=>set("limit",e.target.checked);
+  $("#mNorm").onchange=e=>set("normalize",e.target.checked);
+  $("#mLo").oninput=e=>set("lo",+e.target.value);
+  $("#mMid").oninput=e=>set("mid",+e.target.value);
+  $("#mHi").oninput=e=>set("hi",+e.target.value);
+}
+// 줌
+function relayout(){
+  for(const t of DAW.tracks){ if(t.lane){ t.lane.style.width=Math.max(DAW.duration*DAW.pxPerSec,300)+"px"; drawLane(t); } }
+  drawRuler(); DAW._drawPlayhead();
+}
+$("#zoomIn").onclick=()=>{ DAW.pxPerSec=Math.min(400,DAW.pxPerSec*1.4); relayout(); };
+$("#zoomOut").onclick=()=>{ DAW.pxPerSec=Math.max(20,DAW.pxPerSec/1.4); relayout(); };
+$("#snap").onchange=e=>{ DAW.snapOn=e.target.checked; };
+// 키보드 단축키
+window.addEventListener("keydown",e=>{
+  if(["INPUT","TEXTAREA","SELECT"].includes((e.target.tagName||""))) return;
+  if(e.code==="Space"){ e.preventDefault(); $("#btnPlay").click(); }
+  else if(e.code==="Home"){ DAW.stop(); }
+  else if(e.code==="KeyL"){ $("#btnLoop").click(); }
+  else if(e.code==="KeyE"){ $("#btnEdit").click(); }
+});
+bindMaster();
 
 // ---------- 피아노롤 ----------
 const PR={
