@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StemRemake 미니 DAW</title>
+<style>
+  :root{
+    --bg:#0e0f13; --panel:#15171d; --panel2:#1b1e26; --line:#2a2e3a;
+    --fg:#e8eaf0; --mut:#8b90a0; --ok:#4ade80; --accent:#6ea8fe; --warn:#f0a35e;
+    --font:-apple-system,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--font);font-style:normal}
+  button,input,select{font-family:var(--font);font-style:normal}
+  #app{display:flex;flex-direction:column;height:100vh}
+  /* transport */
+  #transport{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .tbtn{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .tbtn:hover{border-color:var(--accent)}
+  .tbtn.on{background:var(--accent);color:#07122b;border-color:var(--accent)}
+  .tbtn.rec.on{background:var(--warn)}
+  #time{font-variant-numeric:tabular-nums;font-size:15px;min-width:92px;text-align:center}
+  .sp{flex:1}
+  .lbl{color:var(--mut);font-size:12px}
+  /* main */
+  #main{flex:1;display:flex;min-height:0}
+  #tracks{flex:1;overflow:auto;position:relative}
+  .trk{display:flex;border-bottom:1px solid var(--line);height:96px}
+  .thead{width:230px;min-width:230px;background:var(--panel);border-right:1px solid var(--line);padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+  .tname{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trow{display:flex;align-items:center;gap:6px}
+  .mini{width:26px;height:22px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--mut);font-size:11px;cursor:pointer}
+  .mini.on{color:#07122b;font-weight:700}
+  .mini.m.on{background:var(--warn);border-color:var(--warn)}
+  .mini.s.on{background:var(--ok);border-color:var(--ok)}
+  .knob{display:flex;align-items:center;gap:4px}
+  .knob span{font-size:10px;color:var(--mut);width:20px}
+  .knob input{width:100%}
+  input[type=range]{accent-color:var(--accent);height:4px}
+  .lane{flex:1;position:relative;background:var(--panel2);overflow:hidden}
+  .lane canvas{display:block;width:100%;height:100%}
+  #ruler{height:24px;background:var(--panel);border-bottom:1px solid var(--line);display:flex}
+  #rulerSpacer{width:230px;min-width:230px;border-right:1px solid var(--line)}
+  #rulerCanvasWrap{flex:1;position:relative}
+  #rulerCanvasWrap canvas{display:block;width:100%;height:100%}
+  #playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);pointer-events:none;z-index:5;left:0}
+  #status{padding:6px 14px;background:var(--panel);border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+  #empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);text-align:center;padding:20px}
+  a.dl{color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="transport">
+    <button class="tbtn" id="btnPlay">▶ 재생</button>
+    <button class="tbtn" id="btnStop">■ 정지</button>
+    <button class="tbtn" id="btnLoop">⟲ 루프</button>
+    <span id="time">0:00.0</span>
+    <span class="lbl" id="bpmLbl"></span>
+    <span class="sp"></span>
+    <span class="lbl">마스터</span>
+    <input type="range" id="master" min="0" max="1.5" step="0.01" value="1" style="width:120px">
+    <button class="tbtn" id="btnEdit">편집</button>
+    <button class="tbtn" id="btnPiano">피아노롤</button>
+    <button class="tbtn" id="btnExport">내보내기(WAV)</button>
+  </div>
+  <div id="ruler">
+    <div id="rulerSpacer"></div>
+    <div id="rulerCanvasWrap"><canvas id="rulerCanvas"></canvas></div>
+  </div>
+  <div id="main">
+    <div id="tracks">
+      <div id="playhead"></div>
+      <div id="empty">트랙을 불러오는 중… (주소에 ?job=작업ID 가 필요합니다)</div>
+    </div>
+  </div>
+  <div id="pianoPanel" style="display:none;border-top:1px solid var(--line);background:var(--panel);height:280px;flex-direction:column">
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line)">
+      <span class="lbl">피아노롤</span>
+      <span id="partBtns" style="display:flex;gap:6px"></span>
+      <span class="sp"></span>
+      <button class="tbtn" id="btnAudition">파트 재생</button>
+      <button class="tbtn" id="btnMidiExport">MIDI 내보내기</button>
+      <button class="tbtn" id="btnPianoClose">닫기</button>
+    </div>
+    <div style="flex:1;overflow:auto;position:relative"><canvas id="prCanvas" style="display:block"></canvas></div>
+    <div class="lbl" style="padding:4px 12px">빈 곳 클릭=노트 추가 · 노트 드래그=이동 · 오른쪽 끝 드래그=길이 · 더블클릭/우클릭=삭제</div>
+  </div>
+  <div id="status">준비</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const qs=new URLSearchParams(location.search);
+const JOB=qs.get("job");
+
+// ---------- Web Audio 엔진 ----------
+const DAW={
+  ctx:null, master:null, tracks:[], duration:0, pxPerSec:80,
+  playing:false, startCtxTime:0, startPos:0, playhead:0, raf:null,
+  loop:false, loopA:0, loopB:0, bpm:null,
+  init(){
+    this.ctx=new (window.AudioContext||window.webkitAudioContext)();
+    this.master=this.ctx.createGain(); this.master.gain.value=1; this.master.connect(this.ctx.destination);
+  },
+  async addTrack(name, url){
+    const resp=await fetch(url); const ab=await resp.arrayBuffer();
+    const buf=await this.ctx.decodeAudioData(ab);
+    const t={name,buffer:buf,src:null,
+      gain:this.ctx.createGain(), pan:this.ctx.createStereoPanner(),
+      lo:this.ctx.createBiquadFilter(), mid:this.ctx.createBiquadFilter(), hi:this.ctx.createBiquadFilter(),
+      vol:1, muted:false, soloed:false, eq:{lo:0,mid:0,hi:0},
+      clipStart:0, clipEnd:buf.duration, fadeIn:0, fadeOut:0, autom:[], canvas:null, lane:null};
+    t.fx=this.ctx.createGain(); t.fx.gain.value=1;  // 페이드·오토메이션 엔벌로프(믹스 게인과 분리)
+    t.lo.type="lowshelf"; t.lo.frequency.value=180; t.lo.gain.value=0;
+    t.mid.type="peaking"; t.mid.frequency.value=1200; t.mid.Q.value=0.9; t.mid.gain.value=0;
+    t.hi.type="highshelf"; t.hi.frequency.value=6000; t.hi.gain.value=0;
+    // chain: (source)->lo->mid->hi->pan->fx(엔벌로프)->gain(vol/mute/solo)->master
+    t.lo.connect(t.mid); t.mid.connect(t.hi); t.hi.connect(t.pan); t.pan.connect(t.fx); t.fx.connect(t.gain); t.gain.connect(this.master);
+    this.tracks.push(t);
+    this.duration=Math.max(this.duration, buf.duration);
+    return t;
+  },
+  _anySolo(){ return this.tracks.some(t=>t.soloed); },
+  _applyGains(){
+    const solo=this._anySolo();
+    for(const t of this.tracks){
+      const audible = t.muted ? false : (solo ? t.soloed : true);
+      t.gain.gain.value = audible ? t.vol : 0.0;
+    }
+  },
+  _interp(pts, at){
+    if(!pts.length) return 1;
+    const a=[...pts].sort((x,y)=>x.t-y.t);
+    if(at<=a[0].t) return a[0].g;
+    if(at>=a[a.length-1].t) return a[a.length-1].g;
+    for(let i=0;i<a.length-1;i++){ if(at>=a[i].t&&at<=a[i+1].t){ const f=(at-a[i].t)/((a[i+1].t-a[i].t)||1); return a[i].g+(a[i+1].g-a[i].g)*f; } }
+    return 1;
+  },
+  // 타임라인시간 tt(=버퍼시간 1:1) 기준 엔벌로프 0..1.5
+  _env(t, tt){
+    let g=this._interp(t.autom||[], tt);
+    if(t.fadeIn>0 && tt<t.clipStart+t.fadeIn) g*=Math.max(0,(tt-t.clipStart)/t.fadeIn);
+    if(t.fadeOut>0 && tt>t.clipEnd-t.fadeOut) g*=Math.max(0,(t.clipEnd-tt)/t.fadeOut);
+    return Math.max(0,Math.min(1.5,g));
+  },
+  _scheduleFx(t, node, atCtxTime, fromTT, toTT){
+    const span=Math.max(0.02, toTT-fromTT);
+    const N=Math.max(2, Math.ceil(span*60)); const curve=new Float32Array(N);
+    for(let i=0;i<N;i++){ curve[i]=this._env(t, fromTT+span*i/(N-1)); }
+    try{ node.gain.cancelScheduledValues(atCtxTime); node.gain.setValueCurveAtTime(curve,atCtxTime,span); }
+    catch(e){ node.gain.value=this._env(t,fromTT); }
+  },
+  play(){
+    if(this.playing) return;
+    const ctx=this.ctx; if(ctx.state==="suspended") ctx.resume();
+    this._applyGains();
+    const when=ctx.currentTime+0.03; const pos=this.playhead;
+    for(const t of this.tracks){
+      if(pos>=t.clipEnd-0.005) continue;               // 트림 끝 지남 → 재생 없음
+      const s=ctx.createBufferSource(); s.buffer=t.buffer;
+      const startDelay=Math.max(0, t.clipStart-pos);   // 클립 시작이 현재 위치보다 뒤면 늦게 시작
+      const bufOff=Math.max(t.clipStart, pos);
+      if(this.loop){ s.loop=true; s.loopStart=t.clipStart; s.loopEnd=t.clipEnd; }
+      s.connect(t.lo); t.src=s;
+      const at=when+startDelay;
+      this._scheduleFx(t, t.fx, at, bufOff, t.clipEnd);
+      try{ s.start(at, bufOff); }catch(e){ s.start(at); }
+      if(!this.loop) try{ s.stop(at+(t.clipEnd-bufOff)); }catch(e){}
+    }
+    this.startCtxTime=when; this.startPos=this.playhead; this.playing=true;
+    this._tick();
+  },
+  _tick(){
+    const upd=()=>{
+      if(!this.playing) return;
+      let pos=this.startPos+(this.ctx.currentTime-this.startCtxTime);
+      if(this.loop && this.loopB>this.loopA){
+        if(pos>=this.loopB) pos=this.loopA+((pos-this.loopA)%(this.loopB-this.loopA));
+      } else if(pos>=this.duration){ this.stop(); return; }
+      this.playhead=pos; this._drawPlayhead(); this._updTime();
+      this.raf=requestAnimationFrame(upd);
+    };
+    this.raf=requestAnimationFrame(upd);
+  },
+  pause(){
+    if(!this.playing) return;
+    for(const t of this.tracks){ if(t.src){ try{t.src.stop();}catch(e){} t.src=null; } }
+    this.playing=false; if(this.raf) cancelAnimationFrame(this.raf);
+  },
+  stop(){ this.pause(); this.playhead=0; this._drawPlayhead(); this._updTime(); },
+  seek(pos){ const was=this.playing; this.pause(); this.playhead=Math.max(0,Math.min(pos,this.duration)); if(was) this.play(); else {this._drawPlayhead();this._updTime();} },
+  setVol(t,v){ t.vol=v; this._applyGains(); },
+  toggleMute(t){ t.muted=!t.muted; this._applyGains(); },
+  toggleSolo(t){ t.soloed=!t.soloed; this._applyGains(); },
+  setPan(t,v){ t.pan.pan.value=v; },
+  setEq(t,band,v){ t.eq[band]=v; t[band].gain.value=v; },
+  _drawPlayhead(){
+    const wrap=$("#tracks"); const x=230 + this.playhead*this.pxPerSec - wrap.scrollLeft;
+    $("#playhead").style.left=Math.max(230,x)+"px";
+  },
+  _updTime(){
+    const p=this.playhead; const m=Math.floor(p/60); const s=(p%60);
+    $("#time").textContent=`${m}:${s.toFixed(1).padStart(4,"0")}`;
+  },
+  // 오프라인 렌더(현재 믹스 그대로 wav)
+  async render(){
+    const sr=this.ctx.sampleRate; const len=Math.ceil((this.duration||1)*sr);
+    const off=new OfflineAudioContext(2,len,sr);
+    const master=off.createGain(); master.gain.value=this.master.gain.value; master.connect(off.destination);
+    const solo=this._anySolo();
+    for(const t of this.tracks){
+      const audible=t.muted?false:(solo?t.soloed:true); if(!audible) continue;
+      const clipDur=t.clipEnd-t.clipStart; if(clipDur<=0.01) continue;
+      const s=off.createBufferSource(); s.buffer=t.buffer;
+      const lo=off.createBiquadFilter(); lo.type="lowshelf"; lo.frequency.value=180; lo.gain.value=t.eq.lo;
+      const mid=off.createBiquadFilter(); mid.type="peaking"; mid.frequency.value=1200; mid.Q.value=0.9; mid.gain.value=t.eq.mid;
+      const hi=off.createBiquadFilter(); hi.type="highshelf"; hi.frequency.value=6000; hi.gain.value=t.eq.hi;
+      const pan=off.createStereoPanner(); pan.pan.value=t.pan.pan.value;
+      const fx=off.createGain(); const g=off.createGain(); g.gain.value=t.vol;
+      // 페이드·오토메이션 엔벌로프(타임라인시간 clipStart..clipEnd)
+      const N=Math.max(2,Math.ceil(clipDur*60)); const curve=new Float32Array(N);
+      for(let i=0;i<N;i++){ curve[i]=this._env(t, t.clipStart+clipDur*i/(N-1)); }
+      try{ fx.gain.setValueCurveAtTime(curve,t.clipStart,clipDur); }catch(e){ fx.gain.value=1; }
+      s.connect(lo); lo.connect(mid); mid.connect(hi); hi.connect(pan); pan.connect(fx); fx.connect(g); g.connect(master);
+      s.start(t.clipStart, t.clipStart); try{ s.stop(t.clipEnd); }catch(e){}
+    }
+    const rendered=await off.startRendering();
+    return rendered;
+  }
+};
+
+// ---------- 파형 그리기 ----------
+function drawWave(canvas, buffer){
+  const dpr=window.devicePixelRatio||1;
+  const w=canvas.clientWidth, h=canvas.clientHeight;
+  canvas.width=w*dpr; canvas.height=h*dpr;
+  const g=canvas.getContext("2d"); g.scale(dpr,dpr); g.clearRect(0,0,w,h);
+  const data=buffer.getChannelData(0); const step=Math.max(1,Math.floor(data.length/w));
+  g.fillStyle="rgba(110,168,254,0.55)";
+  g.beginPath();
+  const mid=h/2;
+  for(let x=0;x<w;x++){
+    let min=1,max=-1;
+    for(let i=0;i<step;i++){ const v=data[x*step+i]||0; if(v<min)min=v; if(v>max)max=v; }
+    g.fillRect(x, mid+min*mid, 1, Math.max(1,(max-min)*mid));
+  }
+}
+
+function drawRuler(){
+  const wrap=$("#rulerCanvasWrap"); const c=$("#rulerCanvas");
+  const dpr=window.devicePixelRatio||1; const w=wrap.clientWidth,h=wrap.clientHeight;
+  c.width=w*dpr;c.height=h*dpr; const g=c.getContext("2d"); g.scale(dpr,dpr); g.clearRect(0,0,w,h);
+  g.fillStyle="#8b90a0"; g.font="10px sans-serif"; g.strokeStyle="#2a2e3a";
+  const scroll=$("#tracks").scrollLeft;
+  for(let s=0;s<=Math.ceil(DAW.duration)+1;s++){
+    const x=s*DAW.pxPerSec - scroll; if(x<0||x>w) continue;
+    g.beginPath(); g.moveTo(x,0); g.lineTo(x,h); g.stroke();
+    if(s%1===0){ const m=Math.floor(s/60),ss=s%60; g.fillText(`${m}:${String(ss).padStart(2,"0")}`,x+3,14); }
+  }
+}
+
+// ---------- UI 구성 ----------
+function buildTrackRow(t,idx){
+  const row=document.createElement("div"); row.className="trk";
+  row.innerHTML=`
+    <div class="thead">
+      <div class="tname">${t.name}</div>
+      <div class="trow">
+        <button class="mini m" title="뮤트">M</button>
+        <button class="mini s" title="솔로">S</button>
+        <div class="knob" style="flex:1"><span>Vol</span><input type="range" min="0" max="1.5" step="0.01" value="1" class="kv"></div>
+      </div>
+      <div class="trow">
+        <div class="knob" style="flex:1"><span>Pan</span><input type="range" min="-1" max="1" step="0.05" value="0" class="kp"></div>
+      </div>
+      <div class="trow">
+        <div class="knob"><span>Lo</span><input type="range" min="-12" max="12" step="0.5" value="0" class="ke" data-b="lo"></div>
+        <div class="knob"><span>Mid</span><input type="range" min="-12" max="12" step="0.5" value="0" class="ke" data-b="mid"></div>
+        <div class="knob"><span>Hi</span><input type="range" min="-12" max="12" step="0.5" value="0" class="ke" data-b="hi"></div>
+      </div>
+    </div>
+    <div class="lane"><canvas></canvas></div>`;
+  const mBtn=row.querySelector(".m"), sBtn=row.querySelector(".s");
+  mBtn.onclick=()=>{DAW.toggleMute(t); mBtn.classList.toggle("on",t.muted);};
+  sBtn.onclick=()=>{DAW.toggleSolo(t); sBtn.classList.toggle("on",t.soloed);};
+  row.querySelector(".kv").oninput=e=>DAW.setVol(t,+e.target.value);
+  row.querySelector(".kp").oninput=e=>DAW.setPan(t,+e.target.value);
+  row.querySelectorAll(".ke").forEach(el=>el.oninput=e=>DAW.setEq(t,el.dataset.b,+e.target.value));
+  const lane=row.querySelector(".lane"); const canvas=row.querySelector("canvas");
+  t.lane=lane; t.canvas=canvas;
+  lane.style.width=Math.max(DAW.duration*DAW.pxPerSec,300)+"px";
+  setTimeout(()=>drawLane(t),0);
+  // 마우스: 편집모드면 트림/페이드/오토메이션 핸들, 아니면 재생위치 이동
+  let drag=null;
+  const px=e=>{ const r=lane.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top, h:r.height, w:r.width}; };
+  const HZ=7; // 핸들 히트 폭
+  lane.onmousedown=e=>{
+    const {x,y,h}=px(e); const pxs=DAW.pxPerSec;
+    if(!editMode){ DAW.seek(x/pxs); return; }
+    const csx=t.clipStart*pxs, cex=t.clipEnd*pxs;
+    const fiX=(t.clipStart+t.fadeIn)*pxs, foX=(t.clipEnd-t.fadeOut)*pxs;
+    if(Math.abs(x-csx)<HZ){ drag={mode:"trimL"}; }
+    else if(Math.abs(x-cex)<HZ){ drag={mode:"trimR"}; }
+    else if(y<14 && Math.abs(x-fiX)<HZ){ drag={mode:"fadeIn"}; }
+    else if(y<14 && Math.abs(x-foX)<HZ){ drag={mode:"fadeOut"}; }
+    else {
+      // 오토메이션: 기존 점 잡기 or 새 점 추가
+      let hit=null; for(const p of t.autom){ if(Math.abs(p.t*pxs-x)<HZ && Math.abs((1-p.g/1.5)*h-y)<HZ){ hit=p; break; } }
+      if(hit){ drag={mode:"autom",p:hit}; }
+      else { const p={t:x/pxs, g:Math.max(0,Math.min(1.5,(1-y/h)*1.5))}; t.autom.push(p); drag={mode:"autom",p}; }
+    }
+    drawLane(t); e.preventDefault();
+  };
+  lane.onmousemove=e=>{
+    if(!drag) return; const {x,y,h}=px(e); const pxs=DAW.pxPerSec; const tt=x/pxs;
+    if(drag.mode==="trimL") t.clipStart=Math.max(0,Math.min(tt,t.clipEnd-0.05));
+    else if(drag.mode==="trimR") t.clipEnd=Math.min(t.buffer.duration,Math.max(tt,t.clipStart+0.05));
+    else if(drag.mode==="fadeIn") t.fadeIn=Math.max(0,Math.min(tt-t.clipStart, t.clipEnd-t.clipStart));
+    else if(drag.mode==="fadeOut") t.fadeOut=Math.max(0,Math.min(t.clipEnd-tt, t.clipEnd-t.clipStart));
+    else if(drag.mode==="autom"){ drag.p.t=Math.max(0,tt); drag.p.g=Math.max(0,Math.min(1.5,(1-y/h)*1.5)); }
+    drawLane(t);
+  };
+  window.addEventListener("mouseup",()=>{ if(drag){ drag=null; } });
+  lane.ondblclick=e=>{ if(!editMode) return; const {x,y,h}=px(e); const pxs=DAW.pxPerSec;
+    for(let i=0;i<t.autom.length;i++){ const p=t.autom[i]; if(Math.abs(p.t*pxs-x)<HZ && Math.abs((1-p.g/1.5)*h-y)<HZ){ t.autom.splice(i,1); drawLane(t); return; } } };
+  return row;
+}
+
+let editMode=false;
+function drawLane(t){
+  const canvas=t.canvas, lane=t.lane; if(!canvas) return;
+  drawWave(canvas,t.buffer);
+  const g=canvas.getContext("2d"); const dpr=window.devicePixelRatio||1;
+  const w=canvas.clientWidth, h=canvas.clientHeight; const pxs=DAW.pxPerSec;
+  // 주의: drawWave가 scale(dpr) 적용했으므로 좌표는 CSS px 기준
+  const csx=t.clipStart*pxs, cex=t.clipEnd*pxs;
+  // 트림 바깥 어둡게
+  g.fillStyle="rgba(8,9,13,0.66)";
+  if(csx>0) g.fillRect(0,0,csx,h);
+  if(cex<w) g.fillRect(cex,0,w-cex,h);
+  // 페이드 삼각형
+  g.fillStyle="rgba(240,163,94,0.25)"; g.strokeStyle="#f0a35e";
+  if(t.fadeIn>0){ const fx=(t.clipStart+t.fadeIn)*pxs; g.beginPath(); g.moveTo(csx,h); g.lineTo(fx,0); g.lineTo(csx,0); g.closePath(); g.fill(); }
+  if(t.fadeOut>0){ const fx=(t.clipEnd-t.fadeOut)*pxs; g.beginPath(); g.moveTo(cex,h); g.lineTo(fx,0); g.lineTo(cex,0); g.closePath(); g.fill(); }
+  // 오토메이션 라인(점이 있을 때만)
+  if(t.autom&&t.autom.length){
+    const pts=[...t.autom].sort((a,b)=>a.t-b.t);
+    const yOf=gv=>(1-gv/1.5)*h;
+    g.strokeStyle="#4ade80"; g.lineWidth=1.5; g.beginPath();
+    g.moveTo(0,yOf(pts[0].g)); for(const p of pts) g.lineTo(p.t*pxs,yOf(p.g)); g.lineTo(w,yOf(pts[pts.length-1].g));
+    g.stroke(); g.lineWidth=1;
+    if(editMode){ g.fillStyle="#4ade80"; for(const p of pts){ g.beginPath(); g.arc(p.t*pxs,yOf(p.g),3.5,0,7); g.fill(); } }
+  }
+  // 트림 핸들(편집모드)
+  if(editMode){ g.strokeStyle="#6ea8fe"; g.lineWidth=2;
+    g.beginPath(); g.moveTo(csx,0); g.lineTo(csx,h); g.moveTo(cex,0); g.lineTo(cex,h); g.stroke(); g.lineWidth=1; }
+}
+function redrawAllLanes(){ for(const t of DAW.tracks) drawLane(t); }
+
+async function loadJob(){
+  DAW.init();
+  if(!JOB){ $("#empty").textContent="작업 ID가 없습니다. 메인에서 처리 후 'DAW 편집기 열기'로 들어오세요."; return; }
+  $("#status").textContent="트랙 로딩 중…";
+  let data;
+  try{ data=await (await fetch("/api/tracks/"+JOB)).json(); }
+  catch(e){ $("#empty").textContent="트랙을 불러오지 못했습니다."; return; }
+  if(data.error||!data.tracks||!data.tracks.length){ $("#empty").textContent="이 작업에 트랙이 없습니다."; return; }
+  DAW.bpm=data.bpm; if(data.bpm) $("#bpmLbl").textContent="BPM "+data.bpm;
+  const box=$("#tracks"); $("#empty").remove();
+  for(let i=0;i<data.tracks.length;i++){
+    const td=data.tracks[i];
+    try{ const t=await DAW.addTrack(td.name,td.url); box.appendChild(buildTrackRow(t,i)); }
+    catch(e){ console.warn("트랙 로드 실패",td,e); }
+  }
+  DAW.loopB=DAW.duration;
+  drawRuler(); DAW._drawPlayhead(); DAW._updTime();
+  window.__MIDI=data.midi||{};   // 피아노롤 단계에서 사용
+  $("#status").textContent=`${DAW.tracks.length}개 트랙 로드 · 길이 ${DAW.duration.toFixed(1)}초`;
+}
+
+// WAV 인코딩
+function encodeWav(buffer){
+  const ch=buffer.numberOfChannels, sr=buffer.sampleRate, n=buffer.length;
+  const bytes=n*ch*2; const ab=new ArrayBuffer(44+bytes); const v=new DataView(ab);
+  const ws=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  ws(0,"RIFF"); v.setUint32(4,36+bytes,true); ws(8,"WAVE"); ws(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,ch,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*ch*2,true); v.setUint16(32,ch*2,true); v.setUint16(34,16,true);
+  ws(36,"data"); v.setUint32(40,bytes,true);
+  let o=44; const chans=[]; for(let c=0;c<ch;c++) chans.push(buffer.getChannelData(c));
+  for(let i=0;i<n;i++){ for(let c=0;c<ch;c++){ let x=Math.max(-1,Math.min(1,chans[c][i])); v.setInt16(o,x<0?x*0x8000:x*0x7fff,true); o+=2; } }
+  return new Blob([ab],{type:"audio/wav"});
+}
+
+// transport 버튼
+$("#btnPlay").onclick=()=>{ if(DAW.playing){DAW.pause();$("#btnPlay").textContent="▶ 재생";$("#btnPlay").classList.remove("on");} else {DAW.play();$("#btnPlay").textContent="⏸ 일시정지";$("#btnPlay").classList.add("on");} };
+$("#btnStop").onclick=()=>{DAW.stop();$("#btnPlay").textContent="▶ 재생";$("#btnPlay").classList.remove("on");};
+$("#btnLoop").onclick=()=>{DAW.loop=!DAW.loop;$("#btnLoop").classList.toggle("on",DAW.loop);};
+$("#btnEdit").onclick=()=>{ editMode=!editMode; $("#btnEdit").classList.toggle("on",editMode); redrawAllLanes(); $("#status").textContent=editMode?"편집 모드: 좌우끝 드래그=자르기 · 상단끝 드래그=페이드 · 레인 클릭=볼륨점 추가/드래그 · 더블클릭=점 삭제":"편집 모드 끔"; };
+$("#master").oninput=e=>{DAW.master.gain.value=+e.target.value;};
+$("#btnExport").onclick=async()=>{
+  $("#status").textContent="믹스 렌더링 중…";
+  const rb=await DAW.render();
+  // 클리핑 방지: 피크가 0.99 넘으면 전체 스케일 다운
+  let pk=0; for(let c=0;c<rb.numberOfChannels;c++){ const d=rb.getChannelData(c); for(let i=0;i<d.length;i+=17){ const a=Math.abs(d[i]); if(a>pk)pk=a; } }
+  if(pk>0.99){ const g=0.99/pk; for(let c=0;c<rb.numberOfChannels;c++){ const d=rb.getChannelData(c); for(let i=0;i<d.length;i++) d[i]*=g; } }
+  const blob=encodeWav(rb);
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="daw_mix.wav"; a.click();
+  $("#status").textContent="믹스 내보내기 완료";
+};
+$("#tracks").addEventListener("scroll",()=>{drawRuler();DAW._drawPlayhead();});
+window.addEventListener("resize",drawRuler);
+
+// ---------- 피아노롤 ----------
+const PR={
+  part:null, notes:[], pxs:90, rowH:12, loMidi:36, hiMidi:84, canvas:null, g:null,
+  drag:null, auditionSrcs:[],
+  open(part){
+    this.part=part; this.notes=(window.__MIDI[part]||[]).map(n=>({...n}));
+    $("#pianoPanel").style.display="flex";
+    this.canvas=$("#prCanvas"); this.g=this.canvas.getContext("2d");
+    this._range(); this._bind(); this.draw();
+    // 파트 버튼 활성 표시
+    document.querySelectorAll("#partBtns .tbtn").forEach(b=>b.classList.toggle("on",b.dataset.p===part));
+  },
+  _range(){
+    if(this.notes.length){ let lo=127,hi=0; for(const n of this.notes){lo=Math.min(lo,n.midi);hi=Math.max(hi,n.midi);} this.loMidi=Math.max(0,lo-3); this.hiMidi=Math.min(127,hi+3);}
+    else {this.loMidi=36;this.hiMidi=84;}
+  },
+  _w(){ return Math.max((DAW.duration||8)*this.pxs, 600); },
+  _h(){ return (this.hiMidi-this.loMidi+1)*this.rowH; },
+  _x(t){ return t*this.pxs; }, _t(x){ return x/this.pxs; },
+  _y(m){ return (this.hiMidi-m)*this.rowH; }, _m(y){ return Math.round(this.hiMidi - y/this.rowH); },
+  draw(){
+    const dpr=window.devicePixelRatio||1; const w=this._w(),h=this._h();
+    this.canvas.width=w*dpr; this.canvas.height=h*dpr; this.canvas.style.width=w+"px"; this.canvas.style.height=h+"px";
+    const g=this.g; g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+    // 행(흰/검은 건반)
+    for(let m=this.loMidi;m<=this.hiMidi;m++){
+      const black=[1,3,6,8,10].includes(m%12);
+      g.fillStyle=black?"#141620":"#191c24"; g.fillRect(0,this._y(m),w,this.rowH);
+      if(m%12===0){ g.fillStyle="#2a2e3a"; g.fillRect(0,this._y(m),w,1); }
+    }
+    // 세로 비트 그리드
+    const beat=DAW.bpm?60/DAW.bpm:0.5;
+    g.strokeStyle="#242836";
+    for(let t=0;t<(DAW.duration||8);t+=beat){ g.beginPath(); g.moveTo(this._x(t),0); g.lineTo(this._x(t),h); g.stroke(); }
+    // 노트
+    for(const n of this.notes){
+      g.fillStyle=n===this.sel?"#f0a35e":"#6ea8fe";
+      const x=this._x(n.start), y=this._y(n.midi), ww=Math.max(3,this._x(n.end-n.start));
+      g.fillRect(x,y+1,ww,this.rowH-2);
+      g.fillStyle="rgba(0,0,0,0.35)"; g.fillRect(x+ww-3,y+1,3,this.rowH-2); // 리사이즈 핸들
+    }
+  },
+  _hit(x,y){
+    for(let i=this.notes.length-1;i>=0;i--){ const n=this.notes[i];
+      const nx=this._x(n.start), nw=Math.max(3,this._x(n.end-n.start)), ny=this._y(n.midi);
+      if(x>=nx&&x<=nx+nw&&y>=ny&&y<=ny+this.rowH){ return {n, edge:(x>=nx+nw-5)}; }
+    }
+    return null;
+  },
+  _bind(){
+    if(this._bound) return; this._bound=true;
+    const c=this.canvas;
+    c.onmousedown=e=>{
+      const r=c.getBoundingClientRect(); const x=e.offsetX!=null?e.offsetX:(e.clientX-r.left); const y=e.offsetY!=null?e.offsetY:(e.clientY-r.top);
+      const hit=this._hit(x,y);
+      if(hit){ this.sel=hit.n; this.drag={mode:hit.edge?"resize":"move", n:hit.n, x0:x, s0:hit.n.start, e0:hit.n.end, m0:hit.n.midi}; }
+      else { const n={start:this._t(x), end:this._t(x)+0.25, midi:this._m(y), vel:90, drum:null}; this.notes.push(n); this.sel=n; this.drag={mode:"move",n,x0:x,s0:n.start,e0:n.end,m0:n.midi}; }
+      this.draw();
+    };
+    c.onmousemove=e=>{
+      if(!this.drag) return; const r=c.getBoundingClientRect(); const x=e.offsetX!=null?e.offsetX:(e.clientX-r.left); const y=e.offsetY!=null?e.offsetY:(e.clientY-r.top);
+      const dt=this._t(x-this.drag.x0); const n=this.drag.n;
+      if(this.drag.mode==="resize"){ n.end=Math.max(n.start+0.05, this.drag.e0+dt); }
+      else { const dur=this.drag.e0-this.drag.s0; n.start=Math.max(0,this.drag.s0+dt); n.end=n.start+dur; n.midi=Math.max(0,Math.min(127,this._m(y))); }
+      this.draw();
+    };
+    window.addEventListener("mouseup",()=>{this.drag=null;});
+    c.ondblclick=e=>{ const r=c.getBoundingClientRect(); const hit=this._hit(e.clientX-r.left,e.clientY-r.top); if(hit){ this.notes=this.notes.filter(x=>x!==hit.n); this.sel=null; this.draw(); } };
+    c.oncontextmenu=e=>{ e.preventDefault(); const r=c.getBoundingClientRect(); const hit=this._hit(e.clientX-r.left,e.clientY-r.top); if(hit){ this.notes=this.notes.filter(x=>x!==hit.n); this.draw(); } };
+  },
+  audition(){
+    this.stopAudition(); const ctx=DAW.ctx; if(ctx.state==="suspended")ctx.resume();
+    const t0=ctx.currentTime+0.05;
+    for(const n of this.notes){
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type="sawtooth"; o.frequency.value=440*Math.pow(2,(n.midi-69)/12);
+      const a=t0+n.start, rel=t0+n.end;
+      g.gain.setValueAtTime(0,a); g.gain.linearRampToValueAtTime((n.vel/127)*0.25,a+0.01);
+      g.gain.setValueAtTime((n.vel/127)*0.25,Math.max(a+0.02,rel-0.03)); g.gain.linearRampToValueAtTime(0,rel);
+      o.connect(g); g.connect(DAW.master); o.start(a); o.stop(rel+0.02); this.auditionSrcs.push(o);
+    }
+  },
+  stopAudition(){ for(const o of this.auditionSrcs){ try{o.stop();}catch(e){} } this.auditionSrcs=[]; },
+  async exportMidi(){
+    const body={part:this.part, bpm:DAW.bpm||120, notes:this.notes.map(n=>({start:n.start,end:n.end,midi:n.midi,vel:n.vel,drum:n.drum}))};
+    const resp=await fetch("/api/export_midi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!resp.ok){ $("#status").textContent="MIDI 내보내기 실패"; return; }
+    const blob=await resp.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(this.part||"part")+".mid"; a.click();
+    $("#status").textContent="MIDI 내보내기 완료: "+this.part;
+  }
+};
+function setupPianoButtons(){
+  const box=$("#partBtns"); box.innerHTML="";
+  const parts=Object.keys(window.__MIDI||{});
+  if(!parts.length){ $("#btnPiano").style.display="none"; return; }
+  for(const p of parts){ const b=document.createElement("button"); b.className="tbtn"; b.dataset.p=p; b.textContent=p; b.onclick=()=>PR.open(p); box.appendChild(b); }
+}
+$("#btnPiano").onclick=()=>{ const parts=Object.keys(window.__MIDI||{}); if(parts.length) PR.open(parts[0]); };
+$("#btnPianoClose").onclick=()=>{ PR.stopAudition(); $("#pianoPanel").style.display="none"; };
+$("#btnAudition").onclick=()=>PR.audition();
+$("#btnMidiExport").onclick=()=>PR.exportMidi();
+
+loadJob().then(setupPianoButtons);
+</script>
+</body>
+</html>

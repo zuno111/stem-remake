@@ -171,6 +171,7 @@
         <div style="margin-top:8px">
           <a class="dl" id="dlRes" download="remake.wav">재연주본 다운로드</a>
           <a class="dl" id="dlDaw" style="display:none;margin-left:14px" download="daw_package.zip">DAW 패키지 다운로드</a>
+          <button class="btn ghost" id="btnDawEdit" style="margin-left:14px;padding:6px 12px;font-size:13px">DAW 편집기 열기</button>
         </div>
         <div id="dawopen" style="display:none;margin-top:10px">
           <button class="btn ghost" id="btnOpenDaw" style="padding:8px 14px;font-size:13px">DAW에서 열기 (큐베이스·로직)</button>
@@ -326,6 +327,7 @@ function showResult(j){
   }
   $("#dlDaw").style.display = j.daw ? "inline" : "none";
   if(j.daw) $("#dlDaw").href=u("daw");
+  const be=$("#btnDawEdit"); if(be) be.onclick=()=>window.open("/daw?job="+jobId,"_blank");
   $("#dawopen").style.display = j.daw ? "block" : "none";
   const rep=j.report||{};
   if(rep.mode==="enhance"){

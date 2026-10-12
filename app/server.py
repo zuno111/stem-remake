@@ -225,5 +225,85 @@ def open_daw(job_id):
         return jsonify({"error": f"열기 실패: {e}"}), 500
 
 
+@app.get("/daw")
+def daw_page():
+    return send_from_directory(STATIC_DIR, "daw.html")
+
+
+@app.post("/api/export_midi")
+def export_midi():
+    """피아노롤에서 편집한 파트 노트를 .mid로 써서 반환."""
+    data = request.get_json(silent=True) or {}
+    notes = data.get("notes", [])
+    part = str(data.get("part", "part"))
+    bpm = float(data.get("bpm") or 120)
+    try:
+        import pretty_midi
+        pm = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+        is_drum = part == "drums"
+        inst = pretty_midi.Instrument(program=0, is_drum=is_drum, name=part)
+        for n in notes:
+            try:
+                s = float(n["start"]); e = max(s + 0.02, float(n["end"]))
+                inst.notes.append(pretty_midi.Note(
+                    velocity=int(max(1, min(127, n.get("vel", 90)))),
+                    pitch=int(max(0, min(127, n["midi"]))), start=s, end=e))
+            except Exception:
+                continue
+        pm.instruments.append(inst)
+        tmp = os.path.join(tempfile.gettempdir(), f"pr_{uuid.uuid4().hex[:8]}.mid")
+        pm.write(tmp)
+        return send_file(tmp, as_attachment=True, download_name=f"{part}.mid")
+    except Exception as e:
+        return jsonify({"error": f"midi 생성 실패: {e}"}), 500
+
+
+@app.get("/api/tracks/<job_id>")
+def api_tracks(job_id):
+    """DAW 편집기용: 잡의 오디오 트랙 목록 + 전사 MIDI(파트별 노트) + 길이."""
+    job = JOBS.get(job_id)
+    if not job or job.get("status") != "done":
+        return jsonify({"error": "no job"}), 404
+    base = f"/api/file/{job_id}/"
+    tracks = []
+    # 분리 스템(있으면)
+    for n in (job.get("stems") or {}).keys():
+        tracks.append({"name": n, "kind": "stem", "url": base + f"stem:{n}"})
+    # 재연주 스템(있으면)
+    rt = job.get("retrack_dir", "")
+    for n in ["vocals", "drums", "bass", "guitar", "piano", "other"]:
+        if rt and os.path.exists(os.path.join(rt, f"{n}.wav")):
+            tracks.append({"name": f"재연주 {n}", "kind": "retrack", "url": base + f"retrack:{n}"})
+    # 보정/결과 단일 트랙(enhance 모드 등)
+    rep = job.get("report") or {}
+    if rep.get("mode") == "enhance":
+        tracks = [{"name": "보정본", "kind": "result", "url": base + "result"}]
+    # MIDI 파트 파싱(daw_package 있으면)
+    midi = {}
+    mdir = os.path.join(job.get("job_dir", ""), "daw_package", "midi")
+    if os.path.isdir(mdir):
+        try:
+            import pretty_midi
+            GM = {36: "kick", 38: "snare", 42: "hat", 45: "tom", 49: "crash"}
+            for part in ["bass", "other", "guitar", "piano", "drums"]:
+                p = os.path.join(mdir, f"{part}.mid")
+                if not os.path.exists(p):
+                    continue
+                pm = pretty_midi.PrettyMIDI(p)
+                notes = []
+                for inst in pm.instruments:
+                    for nt in inst.notes:
+                        notes.append({"start": round(float(nt.start), 4),
+                                      "end": round(float(nt.end), 4),
+                                      "midi": int(nt.pitch), "vel": int(nt.velocity),
+                                      "drum": GM.get(int(nt.pitch)) if inst.is_drum else None})
+                if notes:
+                    midi[part] = notes
+        except Exception as e:
+            print(f"[tracks] midi parse 실패: {e}")
+    return jsonify({"tracks": tracks, "midi": midi,
+                    "bpm": rep.get("bpm"), "duration": rep.get("duration_sec")})
+
+
 def create_app():
     return app
