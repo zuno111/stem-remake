@@ -14,6 +14,14 @@ import threading
 import traceback
 import webbrowser
 
+# Windows 콘솔(cp1252 등)은 한글을 인코딩 못 해 print에서 UnicodeEncodeError로 죽는다.
+# 출력 스트림을 UTF-8/replace로 재설정해 어떤 콘솔에서도 죽지 않게 한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except Exception:
+        pass
+
 # PyInstaller onefile/onedir 대응: 번들 루트를 import 경로에 추가
 if getattr(sys, "frozen", False):
     BASE = sys._MEIPASS  # type: ignore[attr-defined]
