@@ -62,3 +62,5 @@ exe = EXE(
     icon=None,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="StemRemake")
+
+# build: 20261012T154852Z
