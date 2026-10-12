@@ -1,10 +1,8 @@
 name: build-macos
 
 on:
+  # 비용 절감: 맥 빌드는 자동(push) 비활성화 — 필요할 때 수동 실행(workflow_dispatch)만.
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths-ignore: [ '**.md' ]
 
 permissions:
   contents: write
