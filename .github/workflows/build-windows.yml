@@ -31,6 +31,9 @@ jobs:
           pip install --no-deps basic-pitch
           pip install onnxruntime mir_eval resampy
           pip install pyinstaller==6.11.1
+          # PyInstaller 6.11.1의 pkg_resources 런타임 훅이 setuptools>=81에서
+          # NullProvider 제거로 깨짐 → 호환 버전으로 고정(맨 마지막에 설치)
+          pip install "setuptools==70.3.0"
 
       - name: Pre-download Demucs models (htdemucs + htdemucs_6s)
         continue-on-error: true
