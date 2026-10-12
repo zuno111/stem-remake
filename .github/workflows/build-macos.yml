@@ -49,11 +49,30 @@ jobs:
         working-directory: build
         run: pyinstaller stem_remake.spec --noconfirm --clean
 
-      - name: Smoke test
+      - name: Smoke launch test (실제 실행 + 헬스체크)
         working-directory: build/dist/StemRemake
         run: |
           test -f ./StemRemake || { echo "StemRemake 실행파일 없음"; exit 1; }
           echo "size:"; ls -la ./StemRemake
+          rm -f stemremake_error.log stemremake_url.txt out.log err.log
+          export STEMREMAKE_PORT=8777
+          ./StemRemake >out.log 2>err.log &
+          PID=$!
+          ok=0
+          for i in $(seq 1 40); do
+            sleep 2
+            if curl -fsS -m 3 "http://127.0.0.1:8777/" >/dev/null 2>&1; then ok=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null && [ ! -f stemremake_error.log ]; then break; fi
+          done
+          echo "=== STDOUT ==="; cat out.log 2>/dev/null || true
+          echo "=== STDERR ==="; cat err.log 2>/dev/null || true
+          if [ -f stemremake_error.log ]; then
+            echo "=== ERROR LOG (시작 크래시 트레이스백) ==="; cat stemremake_error.log
+          fi
+          kill "$PID" 2>/dev/null || true
+          pkill -f StemRemake 2>/dev/null || true
+          if [ "$ok" -ne 1 ]; then echo "서버가 응답하지 않음 — 앱이 시작 중 종료됨(위 에러 로그 확인)"; exit 1; fi
+          echo "헬스체크 통과: 서버가 http://127.0.0.1:8777/ 에서 정상 응답"
 
       - name: Zip
         run: |
