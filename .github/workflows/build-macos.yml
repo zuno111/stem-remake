@@ -74,6 +74,22 @@ jobs:
           if [ "$ok" -ne 1 ]; then echo "서버가 응답하지 않음 — 앱이 시작 중 종료됨(위 에러 로그 확인)"; exit 1; fi
           echo "헬스체크 통과: 서버가 http://127.0.0.1:8777/ 에서 정상 응답"
 
+      - name: 진단 로그 수집(실패 시)
+        if: failure()
+        working-directory: build/dist/StemRemake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          msg=""
+          [ -s stemremake_error.log ] && msg="$(cat stemremake_error.log)"
+          [ -z "$msg" ] && [ -s err.log ] && msg="$(tail -c 8000 err.log)"
+          [ -z "$msg" ] && msg="(에러 로그 없음 — 아래 out/err 확인)"
+          esc="${msg//'%'/'%25'}"; esc="${esc//$'\r'/'%0D'}"; esc="${esc//$'\n'/'%0A'}"
+          echo "::error title=startup-crash-macos::${esc}"
+          tar czf "$RUNNER_TEMP/diag-macos.tgz" stemremake_error.log err.log out.log 2>/dev/null || true
+          gh release delete diag-macos --cleanup-tag --yes 2>/dev/null || true
+          gh release create diag-macos "$RUNNER_TEMP/diag-macos.tgz" --title "diag macos" --notes "sha ${{ github.sha }}" 2>/dev/null || true
+
       - name: Zip
         run: |
           cd build/dist

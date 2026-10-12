@@ -84,6 +84,26 @@ jobs:
           if (-not $ok) { throw "서버가 응답하지 않음 — 앱이 시작 중 종료됨(위 에러 로그 확인)" }
           Write-Host "헬스체크 통과: 서버가 http://127.0.0.1:8777/ 에서 정상 응답"
 
+      - name: 진단 로그 수집(실패 시)
+        if: failure()
+        shell: pwsh
+        working-directory: build/dist/StemRemake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $msg = ""
+          if (Test-Path stemremake_error.log) { $msg = Get-Content stemremake_error.log -Raw }
+          if (-not $msg -and (Test-Path err.log)) { $msg = Get-Content err.log -Raw }
+          if (-not $msg) { $msg = "(에러 로그 없음 — out/err 확인)" }
+          $esc = $msg -replace '%','%25' -replace "`r","%0D" -replace "`n","%0A"
+          Write-Host "::error title=startup-crash-windows::$esc"
+          $z = Join-Path $env:RUNNER_TEMP "diag-windows.zip"
+          Compress-Archive -Path stemremake_error.log,err.log,out.log -DestinationPath $z -Force -ErrorAction SilentlyContinue
+          gh release delete diag-windows --cleanup-tag --yes 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create diag-windows $z --title "diag windows" --notes "sha ${{ github.sha }}" 2>$null
+          $global:LASTEXITCODE = 0
+
       - name: Zip
         shell: pwsh
         run: Compress-Archive -Path build/dist/StemRemake/* -DestinationPath StemRemake-windows.zip -Force
