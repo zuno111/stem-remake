@@ -6,6 +6,9 @@ on:
     branches: [ main ]
     paths-ignore: [ '**.md' ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -61,8 +64,14 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path build/dist/StemRemake/* -DestinationPath StemRemake-windows.zip -Force
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: StemRemake-windows
-          path: StemRemake-windows.zip
-          retention-days: 14
+      # 아티팩트 업로드 경로가 막혀서, 고정 태그 Release로 발행(고정 다운로드 링크 제공)
+      - name: Publish to Release (latest-windows)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "latest-windows"
+          gh release delete $tag --cleanup-tag --yes 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create $tag StemRemake-windows.zip --title "StemRemake (Windows) latest" --notes "commit ${{ github.sha }}"
+          Write-Host "다운로드: https://github.com/${{ github.repository }}/releases/download/latest-windows/StemRemake-windows.zip"

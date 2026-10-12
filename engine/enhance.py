@@ -42,8 +42,19 @@ def _true_peak_stereo(y, oversample=4):
 
 
 def enhance(in_path, out_path, target_lufs=-14.0, denoise=0.55,
+            low_gain=1.0, mud_cut=-1.5, deharsh=-1.5, air=2.0, comp=1.8,
             start=None, dur=None):
-    """원본을 보정해 out_path(스테레오 wav)로 저장. start/dur(초) 주면 그 구간만."""
+    """원본을 보정해 out_path(스테레오 wav)로 저장. start/dur(초) 주면 그 구간만.
+
+    세부 조절(사용자가 직접 튜닝):
+      denoise  0~1   디노이즈 세기(0이면 끔)
+      low_gain dB    저역(120Hz) 무게 ±
+      mud_cut  dB    저중역(350Hz) 머드 정리(음수가 깎음)
+      deharsh  dB    상단 중역(3.2kHz) 하스함(음수가 완화)
+      air      dB    공기감(11kHz) ±
+      comp     ratio 글루 컴프 비율(1이면 사실상 끔)
+      target_lufs    최종 라우드니스 목표
+    """
     y, sr = sf.read(in_path, always_2d=True)      # (N, ch)
     y = y.T.astype(np.float32)                     # (ch, N)
     if y.shape[0] == 1:
@@ -54,18 +65,21 @@ def enhance(in_path, out_path, target_lufs=-14.0, denoise=0.55,
 
     # 1) 디노이즈(생성 노이즈·헤이즈 저감)
     if denoise and denoise > 0:
-        y = _denoise_stereo(y, sr, prop_decrease=denoise)
+        y = _denoise_stereo(y, sr, prop_decrease=float(denoise))
 
-    # 2) 톤·다이내믹 보정(스테레오 일괄)
-    board = Pedalboard([
-        HighpassFilter(cutoff_frequency_hz=28),          # 서브소닉 제거
-        LowShelfFilter(cutoff_frequency_hz=120, gain_db=1.0),   # 저역 무게 약간
-        PeakFilter(cutoff_frequency_hz=350, gain_db=-1.5, q=1.0),  # 저중역 머드 정리
-        PeakFilter(cutoff_frequency_hz=3200, gain_db=-1.5, q=1.4),  # 상단 중역 하스함 완화
-        HighShelfFilter(cutoff_frequency_hz=11000, gain_db=2.0),  # 공기감
-        Compressor(threshold_db=-18, ratio=1.8, attack_ms=15, release_ms=160),  # 글루
-    ])
-    y = np.asarray(board(y, sr), dtype=np.float32)
+    # 2) 톤·다이내믹 보정(스테레오 일괄). 각 밴드는 사용자 파라미터로 조절.
+    chain = [HighpassFilter(cutoff_frequency_hz=28)]            # 서브소닉 제거(고정)
+    if abs(low_gain) > 0.01:
+        chain.append(LowShelfFilter(cutoff_frequency_hz=120, gain_db=float(low_gain)))
+    if abs(mud_cut) > 0.01:
+        chain.append(PeakFilter(cutoff_frequency_hz=350, gain_db=float(mud_cut), q=1.0))
+    if abs(deharsh) > 0.01:
+        chain.append(PeakFilter(cutoff_frequency_hz=3200, gain_db=float(deharsh), q=1.4))
+    if abs(air) > 0.01:
+        chain.append(HighShelfFilter(cutoff_frequency_hz=11000, gain_db=float(air)))
+    if comp and comp > 1.01:
+        chain.append(Compressor(threshold_db=-18, ratio=float(comp), attack_ms=15, release_ms=160))
+    y = np.asarray(Pedalboard(chain)(y, sr), dtype=np.float32)
 
     # 3) 라우드니스 정규화(-14 LUFS) + 트루피크 천장
     cur = _lufs_mono(y, sr)

@@ -6,6 +6,9 @@ on:
     branches: [ main ]
     paths-ignore: [ '**.md' ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -56,8 +59,12 @@ jobs:
         run: |
           cd build/dist
           zip -r -q ../../StemRemake-macos.zip StemRemake
-      - uses: actions/upload-artifact@v4
-        with:
-          name: StemRemake-macos
-          path: StemRemake-macos.zip
-          retention-days: 14
+      # 아티팩트 업로드 경로가 막혀서, 고정 태그 Release로 발행(고정 다운로드 링크 제공)
+      - name: Publish to Release (latest-macos)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=latest-macos
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$tag" StemRemake-macos.zip --title "StemRemake (macOS) latest" --notes "commit ${{ github.sha }}"
+          echo "다운로드: https://github.com/${{ github.repository }}/releases/download/latest-macos/StemRemake-macos.zip"
