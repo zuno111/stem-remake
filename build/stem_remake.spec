@@ -70,3 +70,5 @@ coll = COLLECT(exe, a.binaries, a.datas, name="StemRemake")
 # retry: 185819Z
 
 # trigger: 20261013T082714Z
+
+# public build: 20261013T083452Z
