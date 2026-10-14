@@ -125,7 +125,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     # 기타외는 자동 믹스에선 정제 유지(합성보다 품질 좋음). 다성 전사는 내보내기/VST에만 사용.
 
     _progress(progress_cb, 5, f"스템 분리 (backend={backend}, preset={preset}, model={model_name})")
-    stem_paths, sr = sep.separate(input_path, stems_dir, backend=backend, model_name=model_name)
+    stem_paths, sr, used_backend = sep.separate(input_path, stems_dir, backend=backend, model_name=model_name)
 
     _progress(progress_cb, 30, "곡 분석 (BPM/키)")
     report = ana.analyze(input_path, sr=sr)
@@ -143,6 +143,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         report["mode"] = parts_k[1] if len(parts_k) > 1 else report.get("mode", "major")
         report["key_source"] = "manual"
     report["preset"] = preset
+    report["backend_used"] = used_backend
     report["policy"] = policy
     report["six_stem"] = bool(stem_paths.get("guitar") or stem_paths.get("piano"))
     report["quantize"] = quantize or None

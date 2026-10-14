@@ -29,17 +29,33 @@ def _have_demucs():
 
 
 def separate_demucs(input_path, out_dir, model_name="htdemucs"):
-    """Demucs로 스템 분리. model_name='htdemucs_6s'면 6스템(guitar·piano 포함)."""
+    """Demucs로 스템 분리. model_name='htdemucs_6s'면 6스템(guitar·piano 포함).
+
+    오디오 로딩은 demucs 기본 AudioFile(ffmpeg 외부 실행파일 의존) 대신
+    librosa(순수 파이썬/libsndfile)로 한다. 윈도우 등에서 ffmpeg가 없어도
+    demucs가 동작하도록(ffmpeg 미설치 시 WinError 2로 폴백되던 문제 해결).
+    """
     import torch
     from demucs.apply import apply_model
     from demucs.pretrained import get_model
-    from demucs.audio import AudioFile, convert_audio
 
     model = get_model(model_name)
     model.eval()
-    wav = AudioFile(input_path).read(
-        streams=0, samplerate=model.samplerate, channels=model.audio_channels
-    )
+    ch = int(getattr(model, "audio_channels", 2))
+
+    # ffmpeg 없이 로드: librosa(소프트웨어 디코딩). 모델 샘플레이트로 리샘플.
+    y, _ = librosa.load(input_path, sr=model.samplerate, mono=False)
+    y = np.asarray(y, dtype=np.float32)
+    if y.ndim == 1:
+        y = np.stack([y] * ch, axis=0)        # 모노 → 필요한 채널 수로 복제
+    elif y.shape[0] == 1 and ch > 1:
+        y = np.repeat(y, ch, axis=0)
+    elif y.shape[0] > ch:
+        y = y[:ch]
+    elif y.shape[0] < ch:
+        y = np.vstack([y] + [y[-1:]] * (ch - y.shape[0]))
+
+    wav = torch.from_numpy(np.ascontiguousarray(y))   # (channels, samples)
     ref = wav.mean(0)
     wav = (wav - ref.mean()) / (ref.std() + 1e-8)
     with torch.no_grad():
@@ -71,7 +87,8 @@ def separate_lite(input_path, out_dir, sr=44100):
     n_frames = S_full.shape[-1]
     # nn_filter width는 1 이상, n_frames//2 - 1 이하여야 함(짧은 클립 크래시 방지)
     win = max(1, int(librosa.time_to_frames(2.0, sr=sr)))
-    win = min(win, max(1, n_frames // 2 - 1))
+    # librosa 제약: width <= (n_frames-1)//2. 경계 포함 오류 방지 위해 1 더 뺌.
+    win = min(win, max(1, (n_frames - 1) // 2 - 1))
     S_filter = librosa.decompose.nn_filter(
         S_full, aggregate=np.median, metric="cosine", width=win
     )
@@ -99,12 +116,15 @@ def separate_lite(input_path, out_dir, sr=44100):
 
 
 def separate(input_path, out_dir, backend="auto", sr=44100, model_name="htdemucs"):
+    """(paths, sr, used_backend) 반환. used_backend는 실제로 성공한 백엔드."""
     if backend == "auto":
         backend = "demucs" if _have_demucs() else "lite"
     if backend == "demucs":
         try:
-            return separate_demucs(input_path, out_dir, model_name=model_name)  # (paths, sr)
+            paths, msr = separate_demucs(input_path, out_dir, model_name=model_name)
+            return paths, msr, "demucs"
         except Exception as e:
             print(f"[separate] demucs 실패 → lite 폴백: {e}")
             backend = "lite"
-    return separate_lite(input_path, out_dir, sr=sr)  # (paths, sr)
+    paths, msr = separate_lite(input_path, out_dir, sr=sr)
+    return paths, msr, "lite"

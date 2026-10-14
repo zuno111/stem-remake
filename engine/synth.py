@@ -51,6 +51,10 @@ def render_notes(notes, sr, duration, kind="bass"):
     for nt in notes:
         f = _midi_to_hz(nt["midi"])
         start = int(nt["start"] * sr)
+        if start < 0:
+            start = 0
+        if start >= len(buf):   # 버퍼를 벗어나는 노트는 건너뜀(브로드캐스트 에러 방지)
+            continue
         n = max(1, int((nt["end"] - nt["start"]) * sr))
         amp = nt["vel"] / 127.0
         t = np.arange(n) / sr
@@ -71,7 +75,9 @@ def render_notes(notes, sr, duration, kind="bass"):
             env = _adsr(n, sr, a=0.01, d=0.1, s=0.6, r=0.14)
         seg = (wave * env * amp).astype(np.float32)
         end = min(start + n, len(buf))
-        buf[start:end] += seg[:end - start]
+        if end <= start:
+            continue
+        buf[start:end] += seg[: end - start]
     return buf[: int(duration * sr)]
 
 

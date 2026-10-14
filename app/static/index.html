@@ -353,6 +353,11 @@ function showResult(j){
     "처리: 베이스·드럼 재연주, other "+(rep.policy.other==="clean_keep"?"정제 유지":"재연주")+
     (rep.policy.vocals==="skip"?", 보컬 제외":", 보컬 정제 유지") : "";
   if(rep.vocal_folded) bn += " · 보컬 미검출: 보컬 스템에 잡힌 리드 멜로디를 악기(other)로 합쳐 보존했습니다.";
+  if(rep.backend_used){
+    bn += (bn?" · ":"") + "분리기: " + (rep.backend_used==="demucs"
+      ? "demucs (고품질)"
+      : "lite (저품질 폴백 — demucs 실행 실패, 품질 떨어짐)");
+  }
   $("#backendNote").textContent = bn;
 }
 </script>
