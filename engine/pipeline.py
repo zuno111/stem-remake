@@ -154,6 +154,29 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     produced = {}
     parts = {}  # 내보내기용 전사 결과
 
+    # 보컬 접기: 연주곡(보컬 없음) 모드에서 분리기가 리드 멜로디를 vocal 스템으로
+    # 흘려보내므로, vocal을 버리지 않고 other에 합쳐 멜로디를 보존한다.
+    # (에너지만으로는 '진짜 보컬'과 '새어든 리드'를 구분할 수 없어 사용자의 모드 선택을 신뢰)
+    def _rms(p):
+        y = _load(p, sr)
+        return float(np.sqrt(np.mean(y ** 2))) if len(y) else 0.0
+    if "vocals" in stem_paths:
+        vr = _rms(stem_paths["vocals"])
+        tot = sum(_rms(stem_paths[k]) for k in stem_paths) + 1e-9
+        report["vocal_rms"] = round(vr, 5)
+        report["vocal_ratio"] = round(vr / tot, 3)
+        if policy.get("vocals") == "skip" and vr > 1e-4:
+            yv = _load(stem_paths["vocals"], sr)
+            yo = _load(stem_paths["other"], sr)
+            n = max(len(yv), len(yo))
+            a = np.zeros(n, dtype=np.float32); b = np.zeros(n, dtype=np.float32)
+            a[:len(yo)] = yo; b[:len(yv)] = yv
+            fp = os.path.join(stems_dir, "other_folded.wav")
+            sf.write(fp, (a + b).astype(np.float32), sr)
+            stem_paths["other"] = fp
+            stem_paths.pop("vocals", None)
+            report["vocal_folded"] = True
+
     # bass (항상 전사)
     _progress(progress_cb, 50, "베이스 전사")
     from . import cleanup as _cl
