@@ -196,7 +196,7 @@
 const $=s=>document.querySelector(s);
 let preset="instrumental", picked=null, jobId=null, timer=null;
 
-function syncMode(){ $("#enhanceOpts").style.display = (preset==="enhance") ? "flex" : "none"; }
+function syncMode(){ $("#enhanceOpts").style.display = (preset==="enhance") ? "block" : "none"; }
 document.querySelectorAll("#preset button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("#preset button").forEach(x=>x.classList.remove("on"));
   b.classList.add("on"); preset=b.dataset.v; syncMode();

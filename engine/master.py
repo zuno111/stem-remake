@@ -68,11 +68,24 @@ def clean_instrument(y, sr, bright=True):
     return Pedalboard(chain)(y, sr)
 
 
-def mix_and_master(stems, sr, gains=None, target_lufs=-14.0):
+def _denoise_mono(y, sr, prop_decrease=0.6):
+    """분리 스템 잔여 잡음/히스 제거(정적 스펙트럴 게이팅). 실패 시 원본 반환."""
+    try:
+        import noisereduce as nr
+        out = nr.reduce_noise(y=y.astype(np.float32), sr=sr,
+                              stationary=True, prop_decrease=float(prop_decrease))
+        return np.asarray(out, dtype=np.float32)
+    except Exception:
+        return y
+
+
+def mix_and_master(stems, sr, gains=None, target_lufs=-14.0, denoise=0.0, gentle=False):
     """
     재연주 악기 + 정제 보컬을 믹스 후 마스터링.
     stems: {name: np.ndarray}. gains: {name: dB} 선택.
     target_lufs: 적분 라우드니스 목표(스트리밍 -14 LUFS). None이면 라우드니스 정규화 생략.
+    denoise: >0 이면 믹스에 디노이즈 적용(음색 유지본처럼 분리 잡음이 섞인 경우). 0~1.
+    gentle: True면 고역 부스트/피크 부스트를 약하게(분리 스템 잡음 증폭 방지).
     """
     gains = gains or {"vocals": 0.0, "drums": -1.0, "bass": -2.0, "other": -3.0}
     length = max(len(a) for a in stems.values())
@@ -83,14 +96,21 @@ def mix_and_master(stems, sr, gains=None, target_lufs=-14.0):
         a[: len(audio)] = audio.astype(np.float32)
         mix += a * g
 
+    # 분리 잔여 잡음 제거(마스터링으로 증폭되기 전에)
+    if denoise and denoise > 0:
+        mix = _denoise_mono(mix, sr, prop_decrease=float(denoise))
+
     peak = np.max(np.abs(mix)) or 1.0
     mix = mix / peak * 0.9
 
+    # gentle: 분리 스템은 고역/피크 부스트가 히스·아티팩트를 키우므로 약하게
+    air_db = 0.8 if gentle else 2.0
+    peak_db = 0.6 if gentle else 1.5
     master = Pedalboard([
         HighpassFilter(cutoff_frequency_hz=30),
         LowShelfFilter(cutoff_frequency_hz=100, gain_db=1.5),
-        PeakFilter(cutoff_frequency_hz=3000, gain_db=1.5, q=1.0),
-        HighShelfFilter(cutoff_frequency_hz=10000, gain_db=2.0),
+        PeakFilter(cutoff_frequency_hz=3000, gain_db=peak_db, q=1.0),
+        HighShelfFilter(cutoff_frequency_hz=10000, gain_db=air_db),
         Compressor(threshold_db=-14, ratio=2.0, attack_ms=10, release_ms=150),
         Limiter(threshold_db=-1.0, release_ms=100),
         Gain(gain_db=0.0),
