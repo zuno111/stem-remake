@@ -121,7 +121,12 @@ def transcribe_drums(y, sr):
     pad_n = int(pad_s * sr)
     yp = np.concatenate([np.zeros(pad_n, dtype=y.dtype), y])
 
-    onset_frames = librosa.onset.onset_detect(y=yp, sr=sr, hop_length=hop, backtrack=True)
+    # wait: 온셋 최소 간격(≈40ms) → 잡음에 의한 과검출 억제. delta: 피크 임계 상향.
+    wait_fr = max(1, int(0.04 * sr / hop))
+    onset_frames = librosa.onset.onset_detect(
+        y=yp, sr=sr, hop_length=hop, backtrack=True,
+        wait=wait_fr, delta=0.06, pre_max=3, post_max=3, pre_avg=10, post_avg=10,
+    )
     onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop) - pad_s
     cent = librosa.feature.spectral_centroid(y=yp, sr=sr, hop_length=hop)[0]
     rms = librosa.feature.rms(y=yp, hop_length=hop)[0]
@@ -146,15 +151,23 @@ def transcribe_drums(y, sr):
             c += 1
         return c
 
+    # 약한 온셋(잡음성) 걸러낼 에너지 게이트
+    gate = 0.14 * emax
+    last_crash = -10.0          # 직전 크래시 시각(크래시는 희소해야 함)
+    MIN_CRASH_GAP = 1.5         # 크래시 최소 간격(초) — 연속 심벌 쇠소리 방지
+
     hits = []
     for f, t in zip(onset_frames, onset_times):
         fi = min(f, len(cent) - 1)
+        rv = rms[min(f, len(rms) - 1)]
+        if rv < gate:            # 약한 타격은 잡음으로 보고 건너뜀
+            continue
         c = cent[fi]
         lo = low_e[fi] / total_e[fi]
         md = mid_e[fi] / total_e[fi]
         hi = high_e[fi] / total_e[fi]
         dec = decay_frames(f)
-        vel = int(np.clip(90 * (rms[min(f, len(rms) - 1)] / emax) + 30, 20, 127))
+        vel = int(np.clip(90 * (rv / emax) + 30, 20, 127))
         tt = float(max(0.0, t))
 
         # 한 온셋에 여러 악기가 동시 타격될 수 있어 다중 라벨로 분해한다.
@@ -169,8 +182,10 @@ def transcribe_drums(y, sr):
                 labels.append("hat")
         else:
             # 고역 중심: hat / snare / crash 중 주 음색 하나 + 밑에 깔린 kick
-            if dec > 25 and hi > 0.5:
+            # 크래시는 "아주 긴 감쇠 + 매우 강한 고역 + 최소 간격 확보"일 때만.
+            if dec > 32 and hi > 0.6 and (tt - last_crash) >= MIN_CRASH_GAP:
                 labels.append("crash")
+                last_crash = tt
             elif md > 0.09:
                 labels.append("snare")   # 중역 몸통 있음
             else:
