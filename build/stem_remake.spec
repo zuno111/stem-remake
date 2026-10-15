@@ -53,15 +53,29 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
-exe = EXE(
-    pyz, a.scripts, [],
-    exclude_binaries=True,
-    name="StemRemake",
-    console=True,
-    disable_windowed_traceback=False,
-    icon=None,
-)
-coll = COLLECT(exe, a.binaries, a.datas, name="StemRemake")
+
+# STEMREMAKE_ONEFILE=1 이면 단일 실행파일(.exe 하나)로 빌드 — 압축 풀기 불필요,
+# 윈도우 경로 260자 제한/압축 풀기 실패 회피. 아니면 기존 onedir.
+_onefile = os.environ.get("STEMREMAKE_ONEFILE") == "1"
+if _onefile:
+    exe = EXE(
+        pyz, a.scripts, a.binaries, a.datas, [],
+        name="StemRemake",
+        console=True,
+        disable_windowed_traceback=False,
+        upx=False,
+        icon=None,
+    )
+else:
+    exe = EXE(
+        pyz, a.scripts, [],
+        exclude_binaries=True,
+        name="StemRemake",
+        console=True,
+        disable_windowed_traceback=False,
+        icon=None,
+    )
+    coll = COLLECT(exe, a.binaries, a.datas, name="StemRemake")
 
 # build: 20261012T154852Z
 
