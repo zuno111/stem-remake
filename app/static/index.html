@@ -157,6 +157,7 @@
     <details class="vst" open>
       <summary>파트별 재연주 방식 (전자음·특이 음색은 '원본 유지' 또는 '음색 전사' 권장)</summary>
       <div class="note" style="margin:8px 0">원본 유지=분리 음색 그대로 정제 · 음색 전사=원본 음색을 떠서 음정·타이밍만 다시 연주(전자음 보존) · 합성=선택한 악기 소리로 재연주</div>
+      <div class="vrow"><span class="vlab">드럼</span><select id="rm_drums" class="qsel rmsel"></select></div>
       <div class="vrow"><span class="vlab">베이스</span><select id="rm_bass" class="qsel rmsel"></select></div>
       <div class="vrow"><span class="vlab">기타외</span><select id="rm_other" class="qsel rmsel"></select></div>
       <div class="vrow"><span class="vlab">기타</span><select id="rm_guitar" class="qsel rmsel"></select></div>
@@ -241,16 +242,20 @@ const RM_OPTS=[["keep","원본 음색 유지"],["transfer","음색 전사 (전�
   ["synth:bass","합성악기 8 (저음·베이스)"],
   ["synth:synthlead","합성악기 9 (신스 리드)"],
   ["synth:fmbell","합성악기 10 (FM벨·전자음)"]];
-const RM_DEFAULT={rm_bass:"transfer",rm_other:"keep",rm_guitar:"keep",rm_piano:"keep"};
+// 드럼은 음색 전사·멜로디 합성이 안 맞아 '원본 유지 / 합성 드럼'만
+const DRUM_OPTS=[["keep","원본 유지"],["synth","합성 드럼 (재연주)"]];
+const RM_DEFAULT={rm_drums:"keep",rm_bass:"transfer",rm_other:"keep",rm_guitar:"keep",rm_piano:"keep"};
 function initRenderModes(){
   ["rm_bass","rm_other","rm_guitar","rm_piano"].forEach(id=>{
     const el=$("#"+id); if(!el) return;
     el.innerHTML=RM_OPTS.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
     el.value=RM_DEFAULT[id];
   });
+  const dr=$("#rm_drums");
+  if(dr){ dr.innerHTML=DRUM_OPTS.map(([v,l])=>`<option value="${v}">${l}</option>`).join(""); dr.value=RM_DEFAULT.rm_drums; }
 }
 initRenderModes();
-function renderModes(){return {bass:$("#rm_bass").value, other:$("#rm_other").value,
+function renderModes(){return {drums:$("#rm_drums").value, bass:$("#rm_bass").value, other:$("#rm_other").value,
   guitar:$("#rm_guitar").value, piano:$("#rm_piano").value};}
 
 document.addEventListener("click", async e=>{
@@ -298,7 +303,7 @@ function loadSettings(){
     if(s.gains){ ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{ if(s.gains[p]!=null&&$("#g_"+p)){$("#g_"+p).value=s.gains[p]; $("#gv_"+p).textContent=s.gains[p]+" dB";} }); }
     if(s.enh){ const m={denoise:["e_denoise","ev_denoise"],low_gain:["e_low","ev_low"],mud_cut:["e_mud","ev_mud"],deharsh:["e_harsh","ev_harsh"],air:["e_air","ev_air"],comp:["e_comp","ev_comp"],target_lufs:["e_lufs","ev_lufs"]};
       for(const k in m){ if(s.enh[k]!=null&&$("#"+m[k][0])){ $("#"+m[k][0]).value=s.enh[k]; $("#"+m[k][0]).dispatchEvent(new Event("input")); } } }
-    if(s.rm){ const map={bass:"rm_bass",other:"rm_other",guitar:"rm_guitar",piano:"rm_piano"};
+    if(s.rm){ const map={drums:"rm_drums",bass:"rm_bass",other:"rm_other",guitar:"rm_guitar",piano:"rm_piano"};
       for(const k in map){ if(s.rm[k]!=null&&$("#"+map[k])) $("#"+map[k]).value=s.rm[k]; } }
     if(s.preset){ document.querySelectorAll("#preset button").forEach(b=>{b.classList.toggle("on",b.dataset.v===s.preset);}); preset=s.preset; }
   }catch(e){}

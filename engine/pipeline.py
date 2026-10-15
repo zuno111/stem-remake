@@ -163,7 +163,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
 
     # 파트별 렌더 방식(원본유지/음색전사/합성). 기본: 전자음·특이음색 보존을 위해
     # 멜로디·화성 파트는 원본 유지, 베이스는 음색 전사, 드럼은 합성.
-    _dmodes = {"bass": "transfer", "other": "keep", "guitar": "keep", "piano": "keep"}
+    _dmodes = {"drums": "keep", "bass": "transfer", "other": "keep", "guitar": "keep", "piano": "keep"}
     rmodes = dict(_dmodes)
     if render_modes:
         rmodes.update({k: v for k, v in render_modes.items() if v})
@@ -212,19 +212,17 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     produced["bass"], bk = _render_part("bass", stem_paths["bass"], bass_notes, rmodes.get("bass"), sr, dur, instrument_map)
     report["vst_used"]["bass"] = bk
 
-    # drums: 전사(재연주/내보내기용). preserve 정책이면 음색 유지로 분리 스템 정제.
-    _progress(progress_cb, 60, "드럼 전사")
-    drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
-    drum_hits = _cl.dedup_drums(drum_hits)
-    drum_hits = _maybe_quantize_drums(drum_hits, report, quantize)
-    parts["drums"] = drum_hits
+    # drums: 파트별 방식(기본=원본 유지). 합성 모드면 전사→합성 드럼 키트.
+    _progress(progress_cb, 60, "드럼 처리")
     im_d = (instrument_map or {}).get("drums")
-    if policy.get("drums") == "clean_keep" and not (im_d and im_d.get("path")):
-        # 음색 유지: 원본 드럼 스템 정제해 사용
-        produced["drums"] = np.asarray(mst.clean_instrument(_load(stem_paths["drums"], sr), sr, bright=False),
-                                       dtype=np.float32)
-        report["vst_used"]["drums"] = "clean_keep"
-    elif im_d and im_d.get("path"):
+    drum_mode = rmodes.get("drums", "keep")
+    drum_hits = []
+    if daw_export or (im_d and im_d.get("path")) or drum_mode == "synth":
+        drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
+        drum_hits = _cl.dedup_drums(drum_hits)
+        drum_hits = _maybe_quantize_drums(drum_hits, report, quantize)
+    parts["drums"] = drum_hits
+    if im_d and im_d.get("path"):
         try:
             # 드럼은 GM 노트로 변환해 VST에 전달
             dn = [{"start": h["time"], "end": h["time"] + 0.1,
@@ -236,9 +234,13 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             print(f"[drums] VST 실패 → 합성 폴백: {e}")
             produced["drums"] = synth.render_drums(drum_hits, sr, dur)
             report["vst_used"]["drums"] = "synth"
-    else:
+    elif drum_mode == "synth":
         produced["drums"] = synth.render_drums(drum_hits, sr, dur)
         report["vst_used"]["drums"] = "synth"
+    else:  # keep: 원본 드럼 스템 정제해 유지(합성 키트로 안 바꿈)
+        produced["drums"] = np.asarray(mst.clean_instrument(_load(stem_paths["drums"], sr), sr, bright=False),
+                                       dtype=np.float32)
+        report["vst_used"]["drums"] = "clean_keep"
 
     # other
     pol_other = policy.get("other")
