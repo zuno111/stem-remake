@@ -109,6 +109,21 @@ def render_notes(notes, sr, duration, kind="bass"):
             idx = 3.0 + 4.0 * amp
             wave = np.sin(2 * np.pi * f * t + idx * np.sin(2 * np.pi * f * 2.01 * t))
             env = np.exp(-t * 3.0) * _adsr(n, sr, a=0.002, d=0.02, s=1.0, r=0.1)
+        elif kind == "sine":
+            # 순음(플루트계): 기음 중심 + 약한 2배음, 부드러운 어택
+            wave = np.sin(2 * np.pi * f * t) + 0.12 * np.sin(2 * np.pi * 2 * f * t)
+            env = _adsr(n, sr, a=0.03, d=0.08, s=0.85, r=0.12)
+        elif kind == "brass":
+            # 브라스: 톱니 + 세기/시간에 따라 열리는 필터(스웰감) + 밝은 배음
+            wave = _saw(f, n, sr, detune=0.004)
+            cut0 = f * 2.5
+            cut1 = min(f * (7.0 + 6.0 * amp), sr / 2 - 100)
+            # 노트 길이에 걸쳐 컷오프 상승(스웰) — 근사: 2구간 필터 혼합
+            w_lo = sosfilt(butter(2, max(cut0, f * 2), btype="low", fs=sr, output="sos"), wave)
+            w_hi = sosfilt(butter(2, max(cut1, f * 2), btype="low", fs=sr, output="sos"), wave)
+            ramp = np.clip(np.linspace(0, 1, n) * 1.5, 0, 1)
+            wave = w_lo * (1 - ramp) + w_hi * ramp
+            env = _adsr(n, sr, a=0.03, d=0.06, s=0.85, r=0.1)
         else:  # keys / other: 2겹 디튠 saw 패드
             wave = 0.6 * _saw(f, n, sr, detune=0.008) + 0.4 * _saw(f * 2, n, sr, detune=0.006)
             cut = min(f * (4.0 + 6.0 * amp), sr / 2 - 100)

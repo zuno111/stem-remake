@@ -231,9 +231,16 @@ function enhParams(){return {denoise:+$("#e_denoise").value,low_gain:+$("#e_low"
 
 // 파트별 재연주 방식
 const RM_OPTS=[["keep","원본 음색 유지"],["transfer","음색 전사 (전자음 보존)"],
-  ["synth:bass","합성 — 베이스"],["synth:guitar","합성 — 기타"],["synth:piano","합성 — 피아노"],
-  ["synth:keys","합성 — 키보드"],["synth:pad","합성 — 패드"],["synth:organ","합성 — 오르간"],
-  ["synth:fmbell","합성 — FM벨/전자음"],["synth:synthlead","합성 — 신스리드"]];
+  ["synth:sine","합성악기 1 (순음·플루트계)"],
+  ["synth:keys","합성악기 2 (톱니 키보드)"],
+  ["synth:pad","합성악기 3 (따뜻한 패드)"],
+  ["synth:organ","합성악기 4 (오르간)"],
+  ["synth:brass","합성악기 5 (브라스)"],
+  ["synth:guitar","합성악기 6 (플럭·뜯는 소리)"],
+  ["synth:piano","합성악기 7 (타현·피아노계)"],
+  ["synth:bass","합성악기 8 (저음·베이스)"],
+  ["synth:synthlead","합성악기 9 (신스 리드)"],
+  ["synth:fmbell","합성악기 10 (FM벨·전자음)"]];
 const RM_DEFAULT={rm_bass:"transfer",rm_other:"keep",rm_guitar:"keep",rm_piano:"keep"};
 function initRenderModes(){
   ["rm_bass","rm_other","rm_guitar","rm_piano"].forEach(id=>{
