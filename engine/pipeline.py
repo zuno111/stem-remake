@@ -32,6 +32,7 @@ from . import synth
 from . import master as mst
 from . import vst_render as vst
 from . import export_daw
+from . import timbre_transfer as tt
 
 PRESETS = {
     "instrumental": {"vocals": "skip", "drums": "retrack", "bass": "retrack", "other": "clean_keep"},
@@ -65,22 +66,35 @@ def _progress(cb, pct, msg):
             pass
 
 
-def _render_melodic(name, stem_path, notes, policy, sr, dur, instrument_map):
-    """베이스/기타외 렌더. (audio, used_backend)"""
+# 파트별 기본 음색 매핑(합성 모드에서 악기 미지정 시)
+_DEFAULT_KIND = {"bass": "bass", "guitar": "guitar", "piano": "piano", "lead": "lead"}
+
+
+def _mode_needs_notes(mode):
+    """해당 렌더 방식이 전사 노트를 필요로 하는가(원본유지는 불필요)."""
+    return bool(mode) and mode != "keep"
+
+
+def _render_part(name, stem_path, notes, mode, sr, dur, instrument_map):
+    """
+    파트 렌더. mode: 'keep'(원본 음색 유지) | 'transfer'(음색 전사) | 'synth[:악기]'(합성).
+    VST(instrument_map)가 지정되면 최우선. (audio, used)
+    """
     im = (instrument_map or {}).get(name)
     if im and im.get("path"):
         try:
-            audio = vst.render_notes_vst(notes, sr, dur, im["path"], im.get("preset"),
+            audio = vst.render_notes_vst(notes or [], sr, dur, im["path"], im.get("preset"),
                                          is_drum=False, program=im.get("program"))
-            return audio, "vst"
+            return np.asarray(audio, dtype=np.float32), "vst"
         except Exception as e:
-            print(f"[{name}] VST 실패 → 합성 폴백: {e}")
-    if policy in ("retrack", "retrack_poly"):
-        kind = {"bass": "bass", "guitar": "guitar", "piano": "piano",
-                "lead": "lead"}.get(name, "keys")
-        return synth.render_notes(notes, sr, dur, kind=kind), "synth"
-    # clean_keep
+            print(f"[{name}] VST 실패 → 폴백: {e}")
     y = _load(stem_path, sr)
+    if mode == "transfer":
+        return np.asarray(tt.render_notes(notes or [], y, sr, dur), dtype=np.float32), "transfer"
+    if mode and mode.startswith("synth"):
+        inst = mode.split(":", 1)[1] if ":" in mode else _DEFAULT_KIND.get(name, "keys")
+        return np.asarray(synth.render_notes(notes or [], sr, dur, kind=inst), dtype=np.float32), "synth:" + inst
+    # 'keep' 또는 기본: 원본 음색 유지
     return np.asarray(mst.clean_instrument(y, sr), dtype=np.float32), "clean_keep"
 
 
@@ -114,7 +128,7 @@ def _maybe_keysnap(notes, report, keysnap_on):
 def run(input_path, out_dir, backend="auto", preset="instrumental",
         instrument_map=None, daw_export=False, six_stem=False, quantize=None,
         bpm_override=None, key_override=None, gains=None, keysnap=False,
-        compare=False, progress_cb=None):
+        compare=False, render_modes=None, progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
     retrack_dir = os.path.join(out_dir, "retrack")
@@ -146,6 +160,14 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     report["preset"] = preset
     report["backend_used"] = used_backend
     report["policy"] = policy
+
+    # 파트별 렌더 방식(원본유지/음색전사/합성). 기본: 전자음·특이음색 보존을 위해
+    # 멜로디·화성 파트는 원본 유지, 베이스는 음색 전사, 드럼은 합성.
+    _dmodes = {"bass": "transfer", "other": "keep", "guitar": "keep", "piano": "keep"}
+    rmodes = dict(_dmodes)
+    if render_modes:
+        rmodes.update({k: v for k, v in render_modes.items() if v})
+    report["render_modes"] = rmodes
     report["six_stem"] = bool(stem_paths.get("guitar") or stem_paths.get("piano"))
     report["quantize"] = quantize or None
     report["keysnap"] = bool(keysnap)
@@ -187,7 +209,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     bass_notes = _maybe_keysnap(bass_notes, report, keysnap)
     bass_notes = _maybe_quantize_notes(bass_notes, report, quantize)
     parts["bass"] = bass_notes
-    produced["bass"], bk = _render_melodic("bass", stem_paths["bass"], bass_notes, policy["bass"], sr, dur, instrument_map)
+    produced["bass"], bk = _render_part("bass", stem_paths["bass"], bass_notes, rmodes.get("bass"), sr, dur, instrument_map)
     report["vst_used"]["bass"] = bk
 
     # drums: 전사(재연주/내보내기용). preserve 정책이면 음색 유지로 분리 스템 정제.
@@ -220,7 +242,9 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
 
     # other
     pol_other = policy.get("other")
-    need_other_notes = daw_export or bool((instrument_map or {}).get("other")) or pol_other in ("retrack", "retrack_poly")
+    other_mode = rmodes.get("other")
+    need_other_notes = (daw_export or bool((instrument_map or {}).get("other"))
+                        or pol_other in ("retrack", "retrack_poly") or _mode_needs_notes(other_mode))
     other_notes = None
     if need_other_notes:
         yo = _load(stem_paths["other"], sr)
@@ -240,11 +264,10 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         parts["other"] = other_notes
     if pol_other != "skip":
         _progress(progress_cb, 78, "기타외 렌더")
-        produced["other"], ok = _render_melodic("other", stem_paths["other"], other_notes or [], pol_other, sr, dur, instrument_map)
+        produced["other"], ok = _render_part("other", stem_paths["other"], other_notes or [], other_mode, sr, dur, instrument_map)
         report["vst_used"]["other"] = ok
 
-    # guitar / piano (6스템일 때만): 연주곡 모드면 재연주(합성), 아니면 정제 유지
-    retrack_extras = (preset == "instrumental")
+    # guitar / piano (6스템일 때만): 파트별 렌더 방식(기본=원본 유지)
     for extra in ["guitar", "piano"]:
         if extra not in stem_paths:
             continue
@@ -252,7 +275,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         ye = _load(stem_paths[extra], sr)
         en = None
         im_e = (instrument_map or {}).get(extra)
-        if daw_export or bool(im_e) or retrack_extras:
+        e_mode = rmodes.get(extra, "keep")
+        if daw_export or bool(im_e) or _mode_needs_notes(e_mode):
             if poly:
                 from . import transcribe_poly as trp
                 # 파트 음역: 기타 70~2500Hz, 피아노 30~4000Hz
@@ -265,22 +289,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             en = _maybe_keysnap(en, report, keysnap)
             en = _maybe_quantize_notes(en, report, quantize)
             parts[extra] = en
-        if im_e and im_e.get("path"):
-            try:
-                produced[extra] = vst.render_notes_vst(en or [], sr, dur, im_e["path"],
-                                                        im_e.get("preset"), program=im_e.get("program"))
-                report["vst_used"][extra] = "vst"
-            except Exception as e:
-                print(f"[{extra}] VST 실패 → 정제 유지: {e}")
-                produced[extra] = np.asarray(mst.clean_instrument(ye, sr), dtype=np.float32)
-                report["vst_used"][extra] = "clean_keep"
-        elif retrack_extras:
-            produced[extra] = np.asarray(synth.render_notes(en or [], sr, dur, kind=extra),
-                                         dtype=np.float32)
-            report["vst_used"][extra] = "synth"
-        else:
-            produced[extra] = np.asarray(mst.clean_instrument(ye, sr), dtype=np.float32)
-            report["vst_used"][extra] = "clean_keep"
+        produced[extra], ek = _render_part(extra, stem_paths[extra], en or [], e_mode, sr, dur, instrument_map)
+        report["vst_used"][extra] = ek
 
     # vocals
     if policy.get("vocals") == "clean_keep":

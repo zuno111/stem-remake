@@ -82,7 +82,7 @@ def render_notes(notes, sr, duration, kind="bass"):
             wave = h1 + h2 + h3
             env = np.exp(-t * (2.2 + 1.5 * (1 - amp)))          # 피아노식 긴 감쇠
             env *= _adsr(n, sr, a=0.002, d=0.02, s=1.0, r=0.08)
-        elif kind == "lead":
+        elif kind == "lead" or kind == "synthlead":
             # 리드: 밝은 square+saw + 비브라토
             vib = 1.0 + 0.004 * np.sin(2 * np.pi * 5.5 * t)
             ph = 2 * np.pi * f * np.cumsum(vib) / sr
@@ -91,6 +91,24 @@ def render_notes(notes, sr, duration, kind="bass"):
             sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
             wave = sosfilt(sos, wave)
             env = _adsr(n, sr, a=0.02, d=0.08, s=0.8, r=0.12)
+        elif kind == "pad":
+            # 패드: 여러 겹 디튠 saw + 느린 어택/릴리즈(풍성·부드러움)
+            wave = (_saw(f, n, sr, detune=0.012) + _saw(f, n, sr, detune=0.02)
+                    + 0.6 * np.sin(2 * np.pi * f * t)) / 2.6
+            cut = min(f * 4.0, sr / 2 - 100)
+            sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
+            wave = sosfilt(sos, wave)
+            env = _adsr(n, sr, a=0.08, d=0.2, s=0.75, r=0.3)
+        elif kind == "organ":
+            # 오르간: 1·2·4·8배음 합(드로바 느낌), 거의 플랫 서스테인
+            wave = (np.sin(2 * np.pi * f * t) + 0.5 * np.sin(2 * np.pi * 2 * f * t)
+                    + 0.35 * np.sin(2 * np.pi * 4 * f * t) + 0.2 * np.sin(2 * np.pi * 8 * f * t)) / 2.05
+            env = _adsr(n, sr, a=0.006, d=0.02, s=0.95, r=0.06)
+        elif kind == "fmbell":
+            # FM 벨/전자음: 비배음 금속성 음색 + 감쇠
+            idx = 3.0 + 4.0 * amp
+            wave = np.sin(2 * np.pi * f * t + idx * np.sin(2 * np.pi * f * 2.01 * t))
+            env = np.exp(-t * 3.0) * _adsr(n, sr, a=0.002, d=0.02, s=1.0, r=0.1)
         else:  # keys / other: 2겹 디튠 saw 패드
             wave = 0.6 * _saw(f, n, sr, detune=0.008) + 0.4 * _saw(f * 2, n, sr, detune=0.006)
             cut = min(f * (4.0 + 6.0 * amp), sr / 2 - 100)

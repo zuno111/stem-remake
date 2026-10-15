@@ -60,6 +60,7 @@
   .qsel,.qstr{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--fg);
               padding:6px 8px;font-size:13px;font-family:var(--font)}
   .qstr{width:70px}
+  .rmsel{flex:1;min-width:0}
   .vrow input[type=range]{flex:1;accent-color:var(--accent)}
   .gval{width:56px;text-align:right;color:var(--sub);font-size:13px}
   details.vst{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
@@ -153,6 +154,14 @@
       <div class="vrow"><span class="vlab">기타</span><input id="g_guitar" type="range" min="-24" max="12" step="0.5" value="-3"><span class="gval" id="gv_guitar">-3 dB</span></div>
       <div class="vrow"><span class="vlab">피아노</span><input id="g_piano" type="range" min="-24" max="12" step="0.5" value="-3"><span class="gval" id="gv_piano">-3 dB</span></div>
     </details>
+    <details class="vst" open>
+      <summary>파트별 재연주 방식 (전자음·특이 음색은 '원본 유지' 또는 '음색 전사' 권장)</summary>
+      <div class="note" style="margin:8px 0">원본 유지=분리 음색 그대로 정제 · 음색 전사=원본 음색을 떠서 음정·타이밍만 다시 연주(전자음 보존) · 합성=선택한 악기 소리로 재연주</div>
+      <div class="vrow"><span class="vlab">베이스</span><select id="rm_bass" class="qsel rmsel"></select></div>
+      <div class="vrow"><span class="vlab">기타외</span><select id="rm_other" class="qsel rmsel"></select></div>
+      <div class="vrow"><span class="vlab">기타</span><select id="rm_guitar" class="qsel rmsel"></select></div>
+      <div class="vrow"><span class="vlab">피아노</span><select id="rm_piano" class="qsel rmsel"></select></div>
+    </details>
     <details class="vst">
       <summary>VST 악기 모드 (내 플러그인으로 재연주)</summary>
       <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 기본 합성)"><input id="pre_bass" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_bass" class="prog" type="number" placeholder="패치#"></div>
@@ -220,6 +229,23 @@ function enhParams(){return {denoise:+$("#e_denoise").value,low_gain:+$("#e_low"
   mud_cut:+$("#e_mud").value,deharsh:+$("#e_harsh").value,air:+$("#e_air").value,
   comp:+$("#e_comp").value,target_lufs:+$("#e_lufs").value};}
 
+// 파트별 재연주 방식
+const RM_OPTS=[["keep","원본 음색 유지"],["transfer","음색 전사 (전자음 보존)"],
+  ["synth:bass","합성 — 베이스"],["synth:guitar","합성 — 기타"],["synth:piano","합성 — 피아노"],
+  ["synth:keys","합성 — 키보드"],["synth:pad","합성 — 패드"],["synth:organ","합성 — 오르간"],
+  ["synth:fmbell","합성 — FM벨/전자음"],["synth:synthlead","합성 — 신스리드"]];
+const RM_DEFAULT={rm_bass:"transfer",rm_other:"keep",rm_guitar:"keep",rm_piano:"keep"};
+function initRenderModes(){
+  ["rm_bass","rm_other","rm_guitar","rm_piano"].forEach(id=>{
+    const el=$("#"+id); if(!el) return;
+    el.innerHTML=RM_OPTS.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
+    el.value=RM_DEFAULT[id];
+  });
+}
+initRenderModes();
+function renderModes(){return {bass:$("#rm_bass").value, other:$("#rm_other").value,
+  guitar:$("#rm_guitar").value, piano:$("#rm_piano").value};}
+
 document.addEventListener("click", async e=>{
   if(e.target && e.target.id==="btnOpenDaw" && jobId){
     e.target.disabled=true; const prev=e.target.textContent; e.target.textContent="여는 중...";
@@ -242,7 +268,7 @@ document.addEventListener("click", async e=>{
 function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
-      compare:$("#compare").checked, enh:enhParams(),
+      compare:$("#compare").checked, enh:enhParams(), rm:renderModes(),
       qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
       pre_bass:$("#pre_bass").value,pre_drums:$("#pre_drums").value,pre_other:$("#pre_other").value,
@@ -265,6 +291,8 @@ function loadSettings(){
     if(s.gains){ ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{ if(s.gains[p]!=null&&$("#g_"+p)){$("#g_"+p).value=s.gains[p]; $("#gv_"+p).textContent=s.gains[p]+" dB";} }); }
     if(s.enh){ const m={denoise:["e_denoise","ev_denoise"],low_gain:["e_low","ev_low"],mud_cut:["e_mud","ev_mud"],deharsh:["e_harsh","ev_harsh"],air:["e_air","ev_air"],comp:["e_comp","ev_comp"],target_lufs:["e_lufs","ev_lufs"]};
       for(const k in m){ if(s.enh[k]!=null&&$("#"+m[k][0])){ $("#"+m[k][0]).value=s.enh[k]; $("#"+m[k][0]).dispatchEvent(new Event("input")); } } }
+    if(s.rm){ const map={bass:"rm_bass",other:"rm_other",guitar:"rm_guitar",piano:"rm_piano"};
+      for(const k in map){ if(s.rm[k]!=null&&$("#"+map[k])) $("#"+map[k]).value=s.rm[k]; } }
     if(s.preset){ document.querySelectorAll("#preset button").forEach(b=>{b.classList.toggle("on",b.dataset.v===s.preset);}); preset=s.preset; }
   }catch(e){}
 }
@@ -291,6 +319,7 @@ $("#go").onclick=async()=>{
   fd.append("keysnap", $("#keysnap").checked ? "true" : "false");
   fd.append("compare", $("#compare").checked ? "true" : "false");
   fd.append("enh", JSON.stringify(enhParams()));
+  fd.append("render_modes", JSON.stringify(renderModes()));
   if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
   if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
   const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});

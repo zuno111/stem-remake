@@ -28,7 +28,7 @@ JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map,
              six_stem=False, quantize=None, bpm_override=None, key_override=None, gains=None,
-             keysnap=False, compare=False, enh=None):
+             keysnap=False, compare=False, enh=None, render_modes=None):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -67,7 +67,7 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
                            daw_export=daw_export, instrument_map=instrument_map,
                            six_stem=six_stem, quantize=quantize,
                            bpm_override=bpm_override, key_override=key_override, gains=gains,
-                           keysnap=keysnap, compare=compare, progress_cb=cb)
+                           keysnap=keysnap, compare=compare, render_modes=render_modes, progress_cb=cb)
         job["result"] = out["result"]
         job["result_preserve"] = out.get("result_preserve")
         job["stems"] = out["stems"]
@@ -129,6 +129,11 @@ def process():
         gains = _json.loads(gains_raw) if gains_raw.strip() else None
     except Exception:
         gains = None
+    rmodes_raw = request.form.get("render_modes", "")
+    try:
+        render_modes = _json.loads(rmodes_raw) if rmodes_raw.strip() else None
+    except Exception:
+        render_modes = None
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = os.path.join(WORK_ROOT, job_id)
@@ -141,7 +146,7 @@ def process():
     threading.Thread(target=_run_job,
                      args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map,
                            six_stem, quantize, bpm_override, key_override, gains, keysnap, compare,
-                           enh),
+                           enh, render_modes),
                      daemon=True).start()
     return jsonify({"job_id": job_id})
 
