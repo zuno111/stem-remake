@@ -45,6 +45,13 @@
   .stems{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px}
   .stem{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
   .stem .n{font-size:12px;color:var(--sub);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+  .cmp{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+  .cmprow{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .cmprow .nm{font-size:14px;font-weight:700;margin-bottom:8px}
+  .cmpcols{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  @media(max-width:620px){.cmpcols{grid-template-columns:1fr}}
+  .cmpcol .t{font-size:11px;color:var(--sub);font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
+  .cmpcol.re .t{color:var(--ok)}
   .hidden{display:none}
   a.dl{color:var(--accent);text-decoration:none;font-size:13px;font-weight:700}
   .note{color:var(--sub);font-size:12px;margin-top:8px}
@@ -105,7 +112,7 @@
       <label class="chk"><input type="checkbox" id="daw"> DAW 내보내기 (스템 + 파트별 MIDI, 큐베이스·로직에서 마무리)</label>
     </div>
     <div class="row" style="margin-top:10px">
-      <label class="chk"><input type="checkbox" id="six"> 6스템 분리 (기타·피아노 따로 분리)</label>
+      <label class="chk"><input type="checkbox" id="six" checked> 6스템 분리 (기타·피아노 따로 분리 — 악기 가짓수 최대, 분리는 느려짐)</label>
     </div>
     <div class="row" style="margin-top:10px">
       <label class="chk"><input type="checkbox" id="keysnap"> 키 보정 (전사 음을 감지된 스케일에 맞춰 당김)</label>
@@ -186,8 +193,8 @@
       </div>
     </div>
     <div class="meta" id="meta"></div>
-    <div style="margin-top:16px"><span class="label">분리/재연주 스템</span></div>
-    <div class="stems" id="stems"></div>
+    <div style="margin-top:16px"><span class="label">악기별 원본 ↔ 재연주 비교</span></div>
+    <div class="cmp" id="stems"></div>
     <div class="note" id="backendNote"></div>
   </div>
 </div>
@@ -341,13 +348,21 @@ function showResult(j){
       <span>길이 <b>${rep.duration_sec??"-"}s</b></span>
       <span>모드 <b>${rep.preset==="vocal"?"보컬곡":"연주곡"}</b></span>`;
   }
+  // 악기별 원본 스템 ↔ 재연주본 나란히 비교
+  const PART_KO={vocals:"보컬",drums:"드럼",bass:"베이스",guitar:"기타",piano:"피아노",other:"기타외"};
+  const ORDER=["drums","bass","guitar","piano","other","vocals"];
+  const files=j.files||[]; const has=p=>files.includes(p);
   const stemsBox=$("#stems"); stemsBox.innerHTML="";
-  (j.files||[]).filter(f=>f.includes(":")).forEach(f=>{
-    const [grp,name]=f.split(":");
-    const label=(grp==="retrack"?"재연주 ":"원본 ")+name;
-    const d=document.createElement("div"); d.className="stem";
-    d.innerHTML=`<div class="n">${label}</div><audio controls src="${u(f)}"></audio>`;
-    stemsBox.appendChild(d);
+  ORDER.forEach(nm=>{
+    const o="stem:"+nm, r="retrack:"+nm;
+    if(!has(o)&&!has(r)) return;
+    const row=document.createElement("div"); row.className="cmprow";
+    const colOrig=`<div class="cmpcol"><div class="t">원본 분리</div>`+
+      (has(o)?`<audio controls src="${u(o)}"></audio>`:`<div class="note">없음</div>`)+`</div>`;
+    const colRe=`<div class="cmpcol re"><div class="t">재연주</div>`+
+      (has(r)?`<audio controls src="${u(r)}"></audio>`:`<div class="note">재연주 없음(정제 유지 또는 제외)</div>`)+`</div>`;
+    row.innerHTML=`<div class="nm">${PART_KO[nm]||nm}</div><div class="cmpcols">${colOrig}${colRe}</div>`;
+    stemsBox.appendChild(row);
   });
   let bn = rep.policy ?
     "처리: 베이스·드럼 재연주, other "+(rep.policy.other==="clean_keep"?"정제 유지":"재연주")+

@@ -62,12 +62,36 @@ def render_notes(notes, sr, duration, kind="bass"):
             # 기음 + saw 질감 + 한 옥타브 아래 서브로 무게감
             sub = 0.25 * np.sin(2 * np.pi * (f * 0.5) * t)
             wave = 0.62 * np.sin(2 * np.pi * f * t) + 0.28 * _saw(f, n, sr) + sub
-            # 세기에 따라 밝기 조절(강하게 칠수록 배음 더 열림)
             cut = min(f * (3.0 + 5.0 * amp), sr / 2 - 100)
             sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
             wave = sosfilt(sos, wave)
             env = _adsr(n, sr, a=0.004, d=0.06, s=0.75, r=0.06)
-        else:  # keys / other: 2겹 디튠 saw + 세기 연동 저역 필터
+        elif kind == "guitar":
+            # 플럭(뜯는) 음색: 밝은 saw+square, 빠른 감쇠 + 약한 몸통
+            wave = 0.55 * _saw(f, n, sr, detune=0.004) + 0.25 * np.sign(np.sin(2 * np.pi * f * t))
+            cut = min(f * (5.0 + 7.0 * amp), sr / 2 - 100)
+            sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
+            wave = sosfilt(sos, wave)
+            env = np.exp(-t * (4.5 + 3.0 * (1 - amp)))          # 플럭 감쇠
+            env *= _adsr(n, sr, a=0.002, d=0.02, s=1.0, r=0.05)  # 어택/릴리즈 다듬기
+        elif kind == "piano":
+            # 타현(두드리는) 음색: 1·2·3 배음 합 + 지수 감쇠(배음 먼저 꺼짐)
+            h1 = np.sin(2 * np.pi * f * t)
+            h2 = 0.5 * np.sin(2 * np.pi * 2 * f * t) * np.exp(-t * 6)
+            h3 = 0.25 * np.sin(2 * np.pi * 3 * f * t) * np.exp(-t * 10)
+            wave = h1 + h2 + h3
+            env = np.exp(-t * (2.2 + 1.5 * (1 - amp)))          # 피아노식 긴 감쇠
+            env *= _adsr(n, sr, a=0.002, d=0.02, s=1.0, r=0.08)
+        elif kind == "lead":
+            # 리드: 밝은 square+saw + 비브라토
+            vib = 1.0 + 0.004 * np.sin(2 * np.pi * 5.5 * t)
+            ph = 2 * np.pi * f * np.cumsum(vib) / sr
+            wave = 0.5 * np.sign(np.sin(ph)) + 0.5 * (2 * ((f * np.cumsum(vib) / sr) % 1.0) - 1)
+            cut = min(f * (6.0 + 6.0 * amp), sr / 2 - 100)
+            sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")
+            wave = sosfilt(sos, wave)
+            env = _adsr(n, sr, a=0.02, d=0.08, s=0.8, r=0.12)
+        else:  # keys / other: 2겹 디튠 saw 패드
             wave = 0.6 * _saw(f, n, sr, detune=0.008) + 0.4 * _saw(f * 2, n, sr, detune=0.006)
             cut = min(f * (4.0 + 6.0 * amp), sr / 2 - 100)
             sos = butter(2, max(cut, f * 2), btype="low", fs=sr, output="sos")

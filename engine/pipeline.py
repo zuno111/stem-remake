@@ -76,7 +76,8 @@ def _render_melodic(name, stem_path, notes, policy, sr, dur, instrument_map):
         except Exception as e:
             print(f"[{name}] VST 실패 → 합성 폴백: {e}")
     if policy in ("retrack", "retrack_poly"):
-        kind = "bass" if name == "bass" else "keys"
+        kind = {"bass": "bass", "guitar": "guitar", "piano": "piano",
+                "lead": "lead"}.get(name, "keys")
         return synth.render_notes(notes, sr, dur, kind=kind), "synth"
     # clean_keep
     y = _load(stem_path, sr)
@@ -242,14 +243,16 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         produced["other"], ok = _render_melodic("other", stem_paths["other"], other_notes or [], pol_other, sr, dur, instrument_map)
         report["vst_used"]["other"] = ok
 
-    # guitar / piano (6스템일 때만): 전사→내보내기·VST, 자동믹스는 정제 유지
+    # guitar / piano (6스템일 때만): 연주곡 모드면 재연주(합성), 아니면 정제 유지
+    retrack_extras = (preset == "instrumental")
     for extra in ["guitar", "piano"]:
         if extra not in stem_paths:
             continue
         _progress(progress_cb, 80, f"{extra} 처리")
         ye = _load(stem_paths[extra], sr)
         en = None
-        if daw_export or bool((instrument_map or {}).get(extra)):
+        im_e = (instrument_map or {}).get(extra)
+        if daw_export or bool(im_e) or retrack_extras:
             if poly:
                 from . import transcribe_poly as trp
                 # 파트 음역: 기타 70~2500Hz, 피아노 30~4000Hz
@@ -262,7 +265,6 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             en = _maybe_keysnap(en, report, keysnap)
             en = _maybe_quantize_notes(en, report, quantize)
             parts[extra] = en
-        im_e = (instrument_map or {}).get(extra)
         if im_e and im_e.get("path"):
             try:
                 produced[extra] = vst.render_notes_vst(en or [], sr, dur, im_e["path"],
@@ -272,6 +274,10 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                 print(f"[{extra}] VST 실패 → 정제 유지: {e}")
                 produced[extra] = np.asarray(mst.clean_instrument(ye, sr), dtype=np.float32)
                 report["vst_used"][extra] = "clean_keep"
+        elif retrack_extras:
+            produced[extra] = np.asarray(synth.render_notes(en or [], sr, dur, kind=extra),
+                                         dtype=np.float32)
+            report["vst_used"][extra] = "synth"
         else:
             produced[extra] = np.asarray(mst.clean_instrument(ye, sr), dtype=np.float32)
             report["vst_used"][extra] = "clean_keep"
