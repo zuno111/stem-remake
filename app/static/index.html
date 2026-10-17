@@ -110,6 +110,9 @@
       <input type="file" id="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg" class="hidden">
     </div>
     <div class="row" style="margin-top:14px">
+      <label class="chk"><input type="checkbox" id="reperf"> 재연주 사용 (실험적) — 끄면 <b>최대한 분리·정제만</b>(원본 음색 그대로, 가장 자연스러움). 켜면 파트별 악기로 재연주</label>
+    </div>
+    <div class="row" style="margin-top:10px">
       <label class="chk"><input type="checkbox" id="compare"> 비교 모드 (재연주본 + 음색 유지본 둘 다 만들어 나란히 비교)</label>
     </div>
     <div class="row" style="margin-top:10px">
@@ -326,7 +329,10 @@ async function doVstScan(auto){
     _vstItems=(j.items||[]).filter(v=>v.kind!=="effect");
     fillVsel();
     if(!_vstItems.length){ if(msg) msg.textContent="VST3 악기를 못 찾았습니다. '직접 경로 지정(고급)'에서 .vst3 경로를 넣어주세요"; }
-    else {
+    else if(auto && !$("#reperf").checked){
+      // 재연주 OFF: 감지만 하고 자동 적용 안 함(기본은 분리·정제). 켜면 자동 배정됨.
+      if(msg) msg.textContent = "악기 "+_vstItems.length+"개 감지됨 — '재연주 사용'을 켜면 파트별로 자동 배정됩니다";
+    } else {
       const done=autoAssignVst();
       if(msg) msg.textContent = done.length ? ("자동 지정됨 → "+done.join(", ")+" (바꾸려면 드롭다운 선택)")
         : ("악기 "+_vstItems.length+"개 — 파트별로 선택하세요(★=큐베이스 기본)");
@@ -335,7 +341,11 @@ async function doVstScan(auto){
   if(btn) btn.disabled=false;
 }
 if($("#vstScan")) $("#vstScan").onclick=()=>doVstScan(false);
-// 앱 시작 시 자동으로 한 번 찾아서 경로를 채워둔다
+// 재연주 토글: 켜면 감지된 악기를 파트별로 자동 배정, 끄면 분리·정제만(기본)
+if($("#reperf")) $("#reperf").addEventListener("change",()=>{
+  if($("#reperf").checked){ if(_vstItems.length) doVstScan(true); }
+});
+// 앱 시작 시 자동으로 한 번 찾아서 경로를 채워둔다(재연주 OFF면 감지만)
 doVstScan(true);
 
 document.addEventListener("click", async e=>{
@@ -360,6 +370,7 @@ document.addEventListener("click", async e=>{
 function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
+      reperf:$("#reperf").checked,
       compare:$("#compare").checked, enh:enhParams(), rm:renderModes(),
       qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
@@ -377,6 +388,7 @@ function loadSettings(){
     if(!s||!Object.keys(s).length) return;
     if(s.daw!=null)$("#daw").checked=s.daw; if(s.six!=null)$("#six").checked=s.six; if(s.quant!=null)$("#quant").checked=s.quant;
     if(s.keysnap!=null)$("#keysnap").checked=s.keysnap;
+    if(s.reperf!=null)$("#reperf").checked=s.reperf;
     if(s.compare!=null)$("#compare").checked=s.compare;
     if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
     ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
@@ -411,7 +423,11 @@ $("#go").onclick=async()=>{
   fd.append("keysnap", $("#keysnap").checked ? "true" : "false");
   fd.append("compare", $("#compare").checked ? "true" : "false");
   fd.append("enh", JSON.stringify(enhParams()));
-  fd.append("render_modes", JSON.stringify(renderModes()));
+  const reperfOn = $("#reperf").checked;
+  // 재연주 OFF → 모든 파트 '원본 정제 유지'(= 최대 분리·정제, 가장 자연스러움)
+  const rmPayload = reperfOn ? renderModes()
+    : {drums:"keep", bass:"keep", other:"keep", guitar:"keep", piano:"keep"};
+  fd.append("render_modes", JSON.stringify(rmPayload));
   if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
   if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
   const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});
@@ -425,10 +441,12 @@ $("#go").onclick=async()=>{
     const pg=$(pgid).value.trim(); if(pg!=="") o.program=parseInt(pg,10);
     imap[part]=o;
   };
-  addv("bass","#vst_bass","#pre_bass","#prg_bass");
-  addv("drums","#vst_drums","#pre_drums","#prg_drums");
-  addv("other","#vst_other","#pre_other","#prg_other");
-  if(Object.keys(imap).length) fd.append("instrument_map", JSON.stringify(imap));
+  if(reperfOn){   // 재연주 OFF면 VST 악기도 적용하지 않음(강제 재연주로 소리가 뭉개지는 것 방지)
+    addv("bass","#vst_bass","#pre_bass","#prg_bass");
+    addv("drums","#vst_drums","#pre_drums","#prg_drums");
+    addv("other","#vst_other","#pre_other","#prg_other");
+    if(Object.keys(imap).length) fd.append("instrument_map", JSON.stringify(imap));
+  }
   const r=await fetch("/api/process",{method:"POST",body:fd}); const j=await r.json();
   if(j.error){ setProg(0,"오류: "+j.error); $("#go").disabled=false; return; }
   jobId=j.job_id; timer=setInterval(poll,800);
