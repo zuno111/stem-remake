@@ -289,17 +289,46 @@ fillVsel();
   const map={vsel_bass:"vst_bass",vsel_drums:"vst_drums",vsel_other:"vst_other"};
   el.addEventListener("change",()=>{ const inp=$("#"+map[id]); if(inp) inp.value=el.value; });
 });
-if($("#vstScan")) $("#vstScan").onclick=async()=>{
-  const msg=$("#vstScanMsg"), btn=$("#vstScan"); btn.disabled=true; msg.textContent="내 PC에서 검색 중...";
+// 파트별 최적 악기 자동 선택(비어있는 파트만 채움 — 사용자가 이미 지정한 건 유지)
+function _pickVst(preferDrum){
+  const items=_vstItems.filter(v=>v.kind!=="effect");
+  if(preferDrum){ const d=items.filter(v=>v.drum); if(d.length) return d[0]; }
+  const known=items.filter(v=>v.known && !v.drum); if(known.length) return known[0];
+  const nd=items.filter(v=>!v.drum); return nd[0]||items[0]||null;
+}
+function autoAssignVst(){
+  const done=[];
+  const assign=(selId,inpId,label,preferDrum)=>{
+    const inp=$("#"+inpId); if(inp && inp.value.trim()) return;  // 이미 지정됨 → 유지
+    const v=_pickVst(preferDrum); if(!v) return;
+    if($("#"+selId)) $("#"+selId).value=v.path;
+    if(inp) inp.value=v.path;
+    done.push(label+"="+v.name);
+  };
+  assign("vsel_drums","vst_drums","드럼",true);
+  assign("vsel_bass","vst_bass","베이스",false);
+  assign("vsel_other","vst_other","기타외",false);
+  return done;
+}
+async function doVstScan(auto){
+  const msg=$("#vstScanMsg"), btn=$("#vstScan"); if(btn) btn.disabled=true;
+  if(msg) msg.textContent="내 PC에서 악기 검색 중...";
   try{
     const r=await fetch("/api/vst_scan"); const j=await r.json();
     _vstItems=(j.items||[]).filter(v=>v.kind!=="effect");
     fillVsel();
-    msg.textContent=_vstItems.length? ("악기 "+_vstItems.length+"개 찾음 — 파트별로 선택하세요(★=큐베이스 기본)")
-      : "VST3 악기를 못 찾았습니다. '직접 경로 지정(고급)'에서 .vst3 경로를 넣어주세요";
-  }catch(e){ msg.textContent="검색 실패: "+e; }
-  btn.disabled=false;
-};
+    if(!_vstItems.length){ if(msg) msg.textContent="VST3 악기를 못 찾았습니다. '직접 경로 지정(고급)'에서 .vst3 경로를 넣어주세요"; }
+    else {
+      const done=autoAssignVst();
+      if(msg) msg.textContent = done.length ? ("자동 지정됨 → "+done.join(", ")+" (바꾸려면 드롭다운 선택)")
+        : ("악기 "+_vstItems.length+"개 — 파트별로 선택하세요(★=큐베이스 기본)");
+    }
+  }catch(e){ if(msg) msg.textContent="검색 실패: "+e; }
+  if(btn) btn.disabled=false;
+}
+if($("#vstScan")) $("#vstScan").onclick=()=>doVstScan(false);
+// 앱 시작 시 자동으로 한 번 찾아서 경로를 채워둔다
+doVstScan(true);
 
 document.addEventListener("click", async e=>{
   if(e.target && e.target.id==="btnOpenDaw" && jobId){
