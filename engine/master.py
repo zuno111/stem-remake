@@ -10,6 +10,35 @@ from pedalboard import (
 )
 
 
+def _rms_db(a):
+    a = np.asarray(a, dtype=np.float64)
+    if a.size == 0:
+        return -120.0
+    r = float(np.sqrt(np.mean(a * a)))
+    return 20.0 * np.log10(r + 1e-9)
+
+
+def match_gains(orig, prod, tilt=None, lo=-15.0, hi=12.0):
+    """재연주 파트를 원곡 각 스템 레벨에 맞추는 dB 게인 산출(원곡 밸런스 유지).
+
+    orig/prod: {name: np.ndarray}. 반환: {name: dB}.
+    - 기본은 produced 스템을 같은 이름 원본 스템의 RMS로 되돌림(gain = rms_orig - rms_prod).
+    - tilt: 이름별 미세 보정 dB(예: 보컬을 살짝 위로). 없으면 중립.
+    - lo/hi로 과도한 게인 클램프(무음/오검출 방어).
+    """
+    tilt = tilt or {}
+    gains = {}
+    for name, pa in prod.items():
+        oa = orig.get(name)
+        if oa is None:
+            gains[name] = float(tilt.get(name, 0.0))
+            continue
+        g = _rms_db(oa) - _rms_db(pa)
+        g = float(np.clip(g, lo, hi)) + float(tilt.get(name, 0.0))
+        gains[name] = g
+    return gains
+
+
 def _true_peak(y, oversample=4):
     """인터샘플(트루) 피크 추정. 4배 오버샘플 후 최대 절댓값."""
     try:

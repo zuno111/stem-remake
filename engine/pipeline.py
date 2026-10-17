@@ -306,8 +306,20 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                                "other_notes": len(other_notes or [])}
 
     _progress(progress_cb, 90, "재믹스 + 마스터링")
-    result = mst.mix_and_master(produced, sr, gains=gains)
-    report["gains"] = gains or None
+    # 게인 미지정 시: 재연주 파트를 원곡 각 스템 레벨에 맞춰 원곡 밸런스 유지
+    mix_gains = gains
+    if mix_gains is None:
+        try:
+            orig_lv = {nm: _load(stem_paths[nm], sr) for nm in produced if nm in stem_paths}
+            # 보컬은 살짝 앞, 베이스는 살짝 받쳐주는 미세 틸트
+            mix_gains = mst.match_gains(orig_lv, produced,
+                                        tilt={"vocals": 1.0, "bass": 0.5})
+            report["auto_balance"] = {k: round(v, 1) for k, v in mix_gains.items()}
+        except Exception as e:
+            print(f"[mix] 자동 밸런스 실패 → 기본 게인: {e}")
+            mix_gains = None
+    result = mst.mix_and_master(produced, sr, gains=mix_gains)
+    report["gains"] = mix_gains or None
     result_path = os.path.join(out_dir, "result.wav")
     sf.write(result_path, np.asarray(result, dtype=np.float32), sr)
 
