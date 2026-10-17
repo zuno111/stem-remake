@@ -172,6 +172,9 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     report["quantize"] = quantize or None
     report["keysnap"] = bool(keysnap)
     report["vst_used"] = {}
+    # 어떤 파트에 VST 악기가 지정돼 있었는지(UI에서 'VST 로드 실패→합성 폴백' 판별용)
+    report["vst_requested"] = {k: bool((v or {}).get("path"))
+                               for k, v in (instrument_map or {}).items()}
 
     _progress(progress_cb, 40, f"분석: BPM {report['bpm']}, Key {report['key']} {report['mode']}")
 

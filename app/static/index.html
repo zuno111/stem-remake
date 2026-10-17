@@ -55,6 +55,9 @@
   .hidden{display:none}
   a.dl{color:var(--accent);text-decoration:none;font-size:13px;font-weight:700}
   .note{color:var(--sub);font-size:12px;margin-top:8px}
+  .mtag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;
+    background:rgba(120,160,255,.16);color:#9db6ff;letter-spacing:.2px;text-transform:none}
+  .mtag.warn{background:rgba(255,140,90,.18);color:#ffb080}
   .chk{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:14px;cursor:pointer}
   .chk input{width:16px;height:16px}
   .qsel,.qstr{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--fg);
@@ -470,6 +473,20 @@ function showResult(j){
   const PART_KO={vocals:"보컬",drums:"드럼",bass:"베이스",guitar:"기타",piano:"피아노",other:"기타외"};
   const ORDER=["drums","bass","guitar","piano","other","vocals"];
   const files=j.files||[]; const has=p=>files.includes(p);
+  const vu=rep.vst_used||{}, vreq=rep.vst_requested||{};
+  // 파트별 '실제 재연주 방식' 한국어 태그(+VST 로드 실패 폴백 경고)
+  function methodTag(nm){
+    const m=vu[nm]; if(!m) return "";
+    let t, warn=false;
+    if(m==="vst") t="큐베이스/VST 악기";
+    else if(m==="transfer") t="음색 전사";
+    else if(m==="clean_keep") t="원본 정제 유지";
+    else if(m==="synth"){ t="합성 드럼"; if(vreq[nm]) warn=true; }
+    else if(m&&m.indexOf("synth:")===0){ t="합성악기"; if(vreq[nm]) warn=true; }
+    else t=m;
+    if(warn) t+=" ⚠ VST 로드 실패→합성 폴백";
+    return `<span class="mtag${warn?' warn':''}">${t}</span>`;
+  }
   const stemsBox=$("#stems"); stemsBox.innerHTML="";
   ORDER.forEach(nm=>{
     const o="stem:"+nm, r="retrack:"+nm;
@@ -477,7 +494,7 @@ function showResult(j){
     const row=document.createElement("div"); row.className="cmprow";
     const colOrig=`<div class="cmpcol"><div class="t">원본 분리</div>`+
       (has(o)?`<audio controls src="${u(o)}"></audio>`:`<div class="note">없음</div>`)+`</div>`;
-    const colRe=`<div class="cmpcol re"><div class="t">재연주</div>`+
+    const colRe=`<div class="cmpcol re"><div class="t">재연주 ${methodTag(nm)}</div>`+
       (has(r)?`<audio controls src="${u(r)}"></audio>`:`<div class="note">재연주 없음(정제 유지 또는 제외)</div>`)+`</div>`;
     row.innerHTML=`<div class="nm">${PART_KO[nm]||nm}</div><div class="cmpcols">${colOrig}${colRe}</div>`;
     stemsBox.appendChild(row);
@@ -490,6 +507,17 @@ function showResult(j){
     bn += (bn?" · ":"") + "분리기: " + (rep.backend_used==="demucs"
       ? "demucs (고품질)"
       : "lite (저품질 폴백 — demucs 실행 실패, 품질 떨어짐)");
+  }
+  // VST 지정했는데 합성으로 폴백된 파트 모아서 경고
+  const fb=Object.keys(vreq).filter(k=>vreq[k] && (vu[k]==="synth"||(vu[k]||"").indexOf("synth:")===0));
+  if(fb.length){
+    bn += (bn?" · ":"") + "⚠ VST 로드 실패(합성 폴백): "+fb.map(k=>PART_KO[k]||k).join("·")+
+      " — 악기 경로/라이선스 확인 필요";
+  }
+  // 자동 밸런스(원곡 스템 레벨 매칭) 적용값
+  if(rep.auto_balance){
+    const ab=rep.auto_balance;
+    bn += (bn?" · ":"") + "자동 밸런스(dB): "+Object.keys(ab).map(k=>(PART_KO[k]||k)+" "+(ab[k]>0?"+":"")+ab[k]).join(", ");
   }
   $("#backendNote").textContent = bn;
 }
