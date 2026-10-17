@@ -334,13 +334,16 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                 continue
             ys = _load(p, sr)
             if nm == "vocals":
-                preserve_mix[nm] = np.asarray(mst.clean_vocal(ys, sr), dtype=np.float32)
+                v = np.asarray(mst.clean_vocal(ys, sr), dtype=np.float32)
+                preserve_mix[nm] = mst.denoise_adaptive(v, sr, prop_decrease=0.3)
             elif nm == "drums":
+                # 드럼은 트랜지언트 보존 위해 디노이즈 제외(정제만)
                 preserve_mix[nm] = np.asarray(mst.clean_instrument(ys, sr, bright=False), dtype=np.float32)
             else:
-                preserve_mix[nm] = np.asarray(mst.clean_instrument(ys, sr), dtype=np.float32)
-        # 음색 유지본은 분리 잔여 잡음이 섞이므로 디노이즈 + 고역 부스트 완화
-        preserve_result = mst.mix_and_master(preserve_mix, sr, gains=gains, denoise=0.6, gentle=True)
+                ci = np.asarray(mst.clean_instrument(ys, sr), dtype=np.float32)
+                preserve_mix[nm] = mst.denoise_adaptive(ci, sr, prop_decrease=0.35)
+        # 스템별 적응형 디노이즈를 이미 적용 → 믹스 단계 디노이즈는 생략, 고역 부스트만 완화
+        preserve_result = mst.mix_and_master(preserve_mix, sr, gains=gains, denoise=0.0, gentle=True)
         preserve_path = os.path.join(out_dir, "result_preserve.wav")
         sf.write(preserve_path, np.asarray(preserve_result, dtype=np.float32), sr)
         report["compare"] = True

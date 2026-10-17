@@ -108,6 +108,49 @@ def _denoise_mono(y, sr, prop_decrease=0.6):
         return y
 
 
+def _quietest_window(y, sr, win_sec=0.4):
+    """신호에서 가장 조용한 win_sec 구간을 노이즈 프로파일로 반환(없으면 None)."""
+    n = int(win_sec * sr)
+    if y.size < n * 2:
+        return None
+    hop = max(1, int(0.05 * sr))
+    best_i, best_e = 0, None
+    for i in range(0, y.size - n, hop):
+        e = float(np.mean(y[i:i + n] ** 2))
+        if best_e is None or e < best_e:
+            best_e, best_i = e, i
+    return y[best_i:best_i + n]
+
+
+def denoise_adaptive(y, sr, prop_decrease=0.5):
+    """음악용 비정적 디노이즈. 가장 조용한 구간을 노이즈 샘플로 학습해
+    시간에 따라 변하는 분리 잔여 잡음/블리드를 줄인다.
+
+    조용한 구간이 신호보다 충분히 조용할 때만 그걸 노이즈 프로파일로 쓴다.
+    (스템이 내내 크면 그 구간도 신호라 노이즈로 오인 → 신호 훼손. 이땐 자동추정에 맡김)
+    실패 시 원본 반환.
+    """
+    try:
+        import noisereduce as nr
+        y = np.asarray(y, dtype=np.float32)
+        if not np.any(np.abs(y) > 1e-6):
+            return y
+        noise = _quietest_window(y, sr)
+        if noise is None or noise.size == 0:
+            return y
+        q = float(np.sqrt(np.mean(noise ** 2)))
+        med = float(np.sqrt(np.median(y ** 2) + 1e-12))
+        # 조용한 구간이 신호 중앙값보다 확실히 낮을 때만(= 실제 노이즈 바닥이 보일 때만) 처리.
+        # 내내 큰/깨끗한 스템은 건드리지 않아 음악 훼손을 막는다.
+        if q >= 0.5 * med:
+            return y
+        out = nr.reduce_noise(y=y, sr=sr, stationary=False,
+                              prop_decrease=float(prop_decrease), y_noise=noise)
+        return np.asarray(out, dtype=np.float32)
+    except Exception:
+        return y
+
+
 def mix_and_master(stems, sr, gains=None, target_lufs=-14.0, denoise=0.0, gentle=False):
     """
     재연주 악기 + 정제 보컬을 믹스 후 마스터링.
