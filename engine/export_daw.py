@@ -12,7 +12,8 @@ import shutil
 import pretty_midi
 
 # GM 드럼 노트
-_GM_DRUM = {"kick": 36, "snare": 38, "hat": 42, "tom": 45, "crash": 49}
+_GM_DRUM = {"kick": 36, "snare": 38, "hat": 42, "open_hat": 46,
+            "tom": 45, "crash": 49, "ride": 51}
 
 
 def _add_notes(inst, notes):

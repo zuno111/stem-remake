@@ -189,7 +189,8 @@ def transcribe_drums(y, sr):
             elif md > 0.09:
                 labels.append("snare")   # 중역 몸통 있음
             else:
-                labels.append("hat")     # 몸통 거의 없는 고역 트랜지언트
+                # 몸통 거의 없는 고역 트랜지언트 → 감쇠 길이로 오픈/클로즈 햇 구분
+                labels.append("open_hat" if dec > 14 else "hat")
             if lo > 0.08:
                 labels.append("kick")    # 밑에 깔린 킥
 

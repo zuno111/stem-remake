@@ -174,13 +174,73 @@ def _crash(sr):
     return (sosfilt(sos, noise) * 0.45).astype(np.float32)
 
 
-def render_drums(hits, sr, duration):
+def _open_hat(sr):
+    # 오픈 하이햇: 클로즈보다 길게 울림(감쇠 완만)
+    n = int(0.3 * sr); t = np.arange(n) / sr
+    noise = np.random.randn(n) * np.exp(-t * 14)
+    # 금속 쉬머: 비하모닉 부분음 몇 개를 얹어 '쇳소리'가 아닌 '심벌'처럼
+    shimmer = sum(np.sin(2 * np.pi * fq * t) for fq in (7200, 9400, 11300)) * 0.04 * np.exp(-t * 10)
+    sos = butter(4, 5000, btype="high", fs=sr, output="sos")
+    return (sosfilt(sos, noise + shimmer) * 0.42).astype(np.float32)
+
+
+def _ride(sr):
+    # 라이드: 톤성 '핑' + 부드러운 쉬머(길게)
+    n = int(0.6 * sr); t = np.arange(n) / sr
+    ping = (np.sin(2 * np.pi * 520 * t) + 0.5 * np.sin(2 * np.pi * 1040 * t)) * np.exp(-t * 6)
+    noise = np.random.randn(n) * np.exp(-t * 4)
+    sos = butter(4, 3500, btype="high", fs=sr, output="sos")
+    return ((sosfilt(sos, noise) * 0.18 + ping * 0.12)).astype(np.float32)
+
+
+def _pitch_jit(s, factor):
+    # 아주 가벼운 피치/길이 변조(타격마다 동일음 반복되는 기계음 느낌 제거)
+    if abs(factor - 1.0) < 1e-3:
+        return s
+    n = len(s)
+    idx = np.clip(np.arange(n) * factor, 0, n - 1)
+    return np.interp(idx, np.arange(n), s).astype(np.float32)
+
+
+def _variant_bank(fn, sr, k=3):
+    return [fn(sr) for _ in range(k)]   # 서로 다른 노이즈 시드 → 반복 타격이 미묘하게 다름
+
+
+def render_drums(hits, sr, duration, seed=1234):
+    """온셋 히트열 → 합성 드럼. 타격마다 레벨·음색·피치를 미세하게 흔들어 기계음 느낌 제거."""
+    rng = np.random.RandomState(seed)
     buf = np.zeros(int(duration * sr) + sr)
-    samples = {"kick": _kick(sr), "snare": _snare(sr), "hat": _hat(sr),
-               "tom": _tom(sr), "crash": _crash(sr)}
+    # 음색별 변주 뱅크(노이즈성은 여러 개, 톤성은 1개로 충분)
+    banks = {
+        "kick": _variant_bank(_kick, sr, 2),
+        "snare": _variant_bank(_snare, sr, 3),
+        "hat": _variant_bank(_hat, sr, 3),
+        "open_hat": _variant_bank(_open_hat, sr, 2),
+        "tom": _variant_bank(_tom, sr, 2),
+        "crash": _variant_bank(_crash, sr, 2),
+        "ride": _variant_bank(_ride, sr, 2),
+    }
+    # 알 수 없는 라벨은 가까운 음색으로 대체(KeyError 방지)
+    alias = {"hihat": "hat", "closed_hat": "hat", "openhat": "open_hat",
+             "cymbal": "crash", "clap": "snare"}
+    jit_ok = {"kick", "tom"}   # 피치 변조는 피치성 드럼에만
     for h in hits:
-        s = samples[h["drum"]] * (h["vel"] / 127.0)
+        d = h.get("drum", "snare")
+        d = alias.get(d, d)
+        bank = banks.get(d) or banks["snare"]
+        s = bank[rng.randint(len(bank))]
+        if d in jit_ok:
+            s = _pitch_jit(s, 1.0 + rng.uniform(-0.03, 0.03))
+        lvl = (h["vel"] / 127.0) * (1.0 + rng.uniform(-0.08, 0.08))   # ±8% 레벨 흔들기
+        s = s * float(np.clip(lvl, 0.05, 1.2))
         start = int(h["time"] * sr)
+        if start < 0:
+            start = 0
         end = min(start + len(s), len(buf))
-        buf[start:end] += s[: end - start]
-    return buf[: int(duration * sr)]
+        if end > start:
+            buf[start:end] += s[: end - start]
+    out = buf[: int(duration * sr)]
+    peak = float(np.max(np.abs(out))) if out.size else 0.0
+    if peak > 1.0:                       # 겹침으로 1.0 초과 시에만 안전 스케일
+        out = out * (0.99 / peak)
+    return out.astype(np.float32)
