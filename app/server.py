@@ -28,7 +28,7 @@ JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map,
              six_stem=False, quantize=None, bpm_override=None, key_override=None, gains=None,
-             keysnap=False, compare=False, enh=None, render_modes=None):
+             keysnap=False, compare=False, enh=None, render_modes=None, drum_split=True):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -67,10 +67,12 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
                            daw_export=daw_export, instrument_map=instrument_map,
                            six_stem=six_stem, quantize=quantize,
                            bpm_override=bpm_override, key_override=key_override, gains=gains,
-                           keysnap=keysnap, compare=compare, render_modes=render_modes, progress_cb=cb)
+                           keysnap=keysnap, compare=compare, render_modes=render_modes,
+                           drum_split=drum_split, progress_cb=cb)
         job["result"] = out["result"]
         job["result_preserve"] = out.get("result_preserve")
         job["stems"] = out["stems"]
+        job["extra_stems"] = out.get("extra_stems") or {}
         job["retrack_dir"] = out["retrack_dir"]
         job["daw_zip"] = out.get("daw_zip")
         job["job_dir"] = job_dir
@@ -117,6 +119,7 @@ def process():
         quantize = None
     keysnap = request.form.get("keysnap", "false").lower() == "true"
     compare = request.form.get("compare", "false").lower() == "true"
+    drum_split = request.form.get("drum_split", "true").lower() == "true"
     enh_raw = request.form.get("enh", "")
     try:
         enh = _json.loads(enh_raw) if enh_raw.strip() else None
@@ -146,7 +149,7 @@ def process():
     threading.Thread(target=_run_job,
                      args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map,
                            six_stem, quantize, bpm_override, key_override, gains, keysnap, compare,
-                           enh, render_modes),
+                           enh, render_modes, drum_split),
                      daemon=True).start()
     return jsonify({"job_id": job_id})
 
@@ -174,7 +177,8 @@ def status(job_id):
             (["result_preserve"] if job.get("result_preserve") else []) + \
             [f"retrack:{n}" for n in all_names
              if os.path.exists(os.path.join(job.get("retrack_dir", ""), f"{n}.wav"))] + \
-            [f"stem:{n}" for n in (job.get("stems") or {}).keys()]
+            [f"stem:{n}" for n in (job.get("stems") or {}).keys()] + \
+            [f"stem:{n}" for n in (job.get("extra_stems") or {}).keys()]
         r["daw"] = bool(job.get("daw_zip"))
         r["compare"] = bool(job.get("result_preserve"))
     if job["status"] == "error":
@@ -204,7 +208,10 @@ def get_file(job_id, kind):
         if grp == "retrack":
             return send_file(os.path.join(job["retrack_dir"], f"{name}.wav"))
         if grp == "stem":
-            return send_file(job["stems"][name])
+            if name in (job.get("stems") or {}):
+                return send_file(job["stems"][name])
+            if name in (job.get("extra_stems") or {}):
+                return send_file(job["extra_stems"][name])
     abort(404)
 
 

@@ -128,10 +128,11 @@ def _maybe_keysnap(notes, report, keysnap_on):
 def run(input_path, out_dir, backend="auto", preset="instrumental",
         instrument_map=None, daw_export=False, six_stem=False, quantize=None,
         bpm_override=None, key_override=None, gains=None, keysnap=False,
-        compare=False, render_modes=None, progress_cb=None):
+        compare=False, render_modes=None, drum_split=True, progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
     retrack_dir = os.path.join(out_dir, "retrack")
+    pieces_dir = os.path.join(out_dir, "pieces")
     os.makedirs(retrack_dir, exist_ok=True)
 
     policy = dict(PRESETS.get(preset, PRESETS["instrumental"]))
@@ -244,6 +245,25 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         produced["drums"] = np.asarray(mst.clean_instrument(_load(stem_paths["drums"], sr), sr, bright=False),
                                        dtype=np.float32)
         report["vst_used"]["drums"] = "clean_keep"
+
+    # 드럼 분해: 드럼 스템을 킥·스네어·하이햇·탐·심벌 개별 트랙으로 추출(믹스와 무관, 추출물)
+    extra_stems = {}
+    if drum_split and "drums" in stem_paths:
+        try:
+            _progress(progress_cb, 64, "드럼 분해 (킥·스네어·하이햇·탐·심벌)")
+            from . import drumsplit as _ds
+            dy = _load(stem_paths["drums"], sr)
+            split_hits = drum_hits if drum_hits else _cl.dedup_drums(tr.transcribe_drums(dy, sr))
+            pieces = _ds.split_drum_stem(dy, sr, split_hits)
+            if pieces:
+                os.makedirs(pieces_dir, exist_ok=True)
+                for pname, audio in pieces.items():
+                    pp = os.path.join(pieces_dir, f"drum_{pname}.wav")
+                    sf.write(pp, np.asarray(audio, dtype=np.float32), sr)
+                    extra_stems[f"drum_{pname}"] = pp
+                report["drum_pieces"] = list(pieces.keys())
+        except Exception as e:
+            print(f"[drumsplit] 실패(건너뜀): {e}")
 
     # other
     pol_other = policy.get("other")
@@ -361,7 +381,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
 
     _progress(progress_cb, 100, "완료")
     return {"result": result_path, "result_preserve": preserve_path, "report": report,
-            "stems": stem_paths, "retrack_dir": retrack_dir, "daw_zip": daw_zip}
+            "stems": stem_paths, "extra_stems": extra_stems,
+            "retrack_dir": retrack_dir, "daw_zip": daw_zip}
 
 
 if __name__ == "__main__":

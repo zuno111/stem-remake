@@ -122,6 +122,9 @@
       <label class="chk"><input type="checkbox" id="six" checked> 6스템 분리 (기타·피아노 따로 분리 — 악기 가짓수 최대, 분리는 느려짐)</label>
     </div>
     <div class="row" style="margin-top:10px">
+      <label class="chk"><input type="checkbox" id="drumsplit" checked> 드럼 분해 (드럼을 킥·스네어·하이햇·탐·심벌 개별 트랙으로 추가 추출)</label>
+    </div>
+    <div class="row" style="margin-top:10px">
       <label class="chk"><input type="checkbox" id="keysnap"> 키 보정 (전사 음을 감지된 스케일에 맞춰 당김)</label>
     </div>
     <div class="row" style="margin-top:10px">
@@ -370,7 +373,7 @@ document.addEventListener("click", async e=>{
 function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
-      reperf:$("#reperf").checked,
+      reperf:$("#reperf").checked,drumsplit:$("#drumsplit").checked,
       compare:$("#compare").checked, enh:enhParams(), rm:renderModes(),
       qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
@@ -389,6 +392,7 @@ function loadSettings(){
     if(s.daw!=null)$("#daw").checked=s.daw; if(s.six!=null)$("#six").checked=s.six; if(s.quant!=null)$("#quant").checked=s.quant;
     if(s.keysnap!=null)$("#keysnap").checked=s.keysnap;
     if(s.reperf!=null)$("#reperf").checked=s.reperf;
+    if(s.drumsplit!=null)$("#drumsplit").checked=s.drumsplit;
     if(s.compare!=null)$("#compare").checked=s.compare;
     if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
     ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
@@ -417,6 +421,7 @@ $("#go").onclick=async()=>{
   const fd=new FormData(); fd.append("file",picked); fd.append("preset",preset);
   fd.append("daw_export", $("#daw").checked ? "true" : "false");
   fd.append("six_stem", $("#six").checked ? "true" : "false");
+  fd.append("drum_split", $("#drumsplit").checked ? "true" : "false");
   if($("#quant").checked){
     fd.append("quantize", JSON.stringify({division:parseInt($("#qdiv").value,10), strength:parseFloat($("#qstr").value)}));
   }
@@ -488,8 +493,10 @@ function showResult(j){
       <span>모드 <b>${rep.preset==="vocal"?"보컬곡":"연주곡"}</b></span>`;
   }
   // 악기별 원본 스템 ↔ 재연주본 나란히 비교
-  const PART_KO={vocals:"보컬",drums:"드럼",bass:"베이스",guitar:"기타",piano:"피아노",other:"기타외"};
-  const ORDER=["drums","bass","guitar","piano","other","vocals"];
+  const PART_KO={vocals:"보컬",drums:"드럼",bass:"베이스",guitar:"기타",piano:"피아노",other:"기타외",
+    drum_kick:"└ 킥",drum_snare:"└ 스네어",drum_hat:"└ 하이햇",drum_tom:"└ 탐",drum_cymbal:"└ 심벌"};
+  const ORDER=["drums","drum_kick","drum_snare","drum_hat","drum_tom","drum_cymbal",
+    "bass","guitar","piano","other","vocals"];
   const files=j.files||[]; const has=p=>files.includes(p);
   const vu=rep.vst_used||{}, vreq=rep.vst_requested||{};
   // 파트별 '실제 재연주 방식' 한국어 태그(+VST 로드 실패 폴백 경고)
@@ -509,11 +516,14 @@ function showResult(j){
   ORDER.forEach(nm=>{
     const o="stem:"+nm, r="retrack:"+nm;
     if(!has(o)&&!has(r)) return;
+    const isPiece=nm.indexOf("drum_")===0;
     const row=document.createElement("div"); row.className="cmprow";
-    const colOrig=`<div class="cmpcol"><div class="t">원본 분리</div>`+
-      (has(o)?`<audio controls src="${u(o)}"></audio>`:`<div class="note">없음</div>`)+`</div>`;
-    const colRe=`<div class="cmpcol re"><div class="t">재연주 ${methodTag(nm)}</div>`+
-      (has(r)?`<audio controls src="${u(r)}"></audio>`:`<div class="note">재연주 없음(정제 유지 또는 제외)</div>`)+`</div>`;
+    const colOrig=`<div class="cmpcol"><div class="t">${isPiece?"드럼 추출":"원본 분리"}</div>`+
+      (has(o)?`<audio controls src="${u(o)}"></audio>`+`<a class="dl" href="${u(o)}" download="${nm}.wav">내려받기</a>`:`<div class="note">없음</div>`)+`</div>`;
+    const colRe = isPiece
+      ? `<div class="cmpcol"><div class="t">&nbsp;</div><div class="note">드럼 스템에서 분해한 개별 트랙</div></div>`
+      : `<div class="cmpcol re"><div class="t">재연주 ${methodTag(nm)}</div>`+
+        (has(r)?`<audio controls src="${u(r)}"></audio>`:`<div class="note">재연주 없음(정제 유지 또는 제외)</div>`)+`</div>`;
     row.innerHTML=`<div class="nm">${PART_KO[nm]||nm}</div><div class="cmpcols">${colOrig}${colRe}</div>`;
     stemsBox.appendChild(row);
   });
