@@ -151,6 +151,16 @@ def process():
     return jsonify({"job_id": job_id})
 
 
+@app.get("/api/vst_scan")
+def vst_scan():
+    """설치된 VST3/AU 악기 자동 탐지(큐베이스 기본 악기 등)."""
+    try:
+        from engine import vst_scan as vs
+        return jsonify({"ok": True, "items": vs.scan_vst3()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "items": []})
+
+
 @app.get("/api/status/<job_id>")
 def status(job_id):
     job = JOBS.get(job_id)

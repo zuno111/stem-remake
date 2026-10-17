@@ -163,12 +163,23 @@
       <div class="vrow"><span class="vlab">기타</span><select id="rm_guitar" class="qsel rmsel"></select></div>
       <div class="vrow"><span class="vlab">피아노</span><select id="rm_piano" class="qsel rmsel"></select></div>
     </details>
-    <details class="vst">
-      <summary>VST 악기 모드 (내 플러그인으로 재연주)</summary>
-      <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 기본 합성)"><input id="pre_bass" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_bass" class="prog" type="number" placeholder="패치#"></div>
-      <div class="vrow"><span class="vlab">드럼</span><input id="vst_drums" placeholder=".vst3 경로"><input id="pre_drums" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_drums" class="prog" type="number" placeholder="패치#"></div>
-      <div class="vrow"><span class="vlab">기타외</span><input id="vst_other" placeholder=".vst3 경로"><input id="pre_other" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_other" class="prog" type="number" placeholder="패치#"></div>
-      <div class="note">예) Windows: C:\Program Files\Common Files\VST3\HALion Sonic.vst3 · Mac: /Library/Audio/Plug-Ins/VST3 또는 Components(AU). 패치#는 멀티팀브럴 악기(HALion 등)에서 음색 번호 선택용(0부터), 프리셋 경로는 .vstpreset 등. 비운 파트는 기본 합성으로 렌더됩니다. 로직 내장 악기는 외부 호출 불가.</div>
+    <details class="vst" open>
+      <summary>큐베이스/VST 악기로 재연주 (설치된 악기 자동 찾기)</summary>
+      <div class="note" style="margin:8px 0">설치된 큐베이스/Steinberg 악기(HALion Sonic SE·Groove Agent SE 등)를 찾아 파트별로 지정하면, 전사한 연주를 그 실제 악기 음색으로 렌더합니다. 지정한 파트는 위의 재연주 방식보다 VST가 우선합니다.</div>
+      <div class="row" style="margin:8px 0">
+        <button class="btn ghost" id="vstScan" type="button" style="padding:7px 14px;font-size:13px">설치된 악기 찾기</button>
+        <span class="label" id="vstScanMsg">버튼을 누르면 내 PC의 VST3 악기를 검색합니다</span>
+      </div>
+      <div class="vrow"><span class="vlab">베이스</span><select id="vsel_bass" class="qsel rmsel"></select></div>
+      <div class="vrow"><span class="vlab">드럼</span><select id="vsel_drums" class="qsel rmsel"></select></div>
+      <div class="vrow"><span class="vlab">기타외</span><select id="vsel_other" class="qsel rmsel"></select></div>
+      <details class="vst" style="margin-top:10px">
+        <summary>직접 경로 지정 / 패치 번호 (고급)</summary>
+        <div class="vrow"><span class="vlab">베이스</span><input id="vst_bass" placeholder=".vst3 경로 (비우면 위 선택/합성)"><input id="pre_bass" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_bass" class="prog" type="number" placeholder="패치#"></div>
+        <div class="vrow"><span class="vlab">드럼</span><input id="vst_drums" placeholder=".vst3 경로"><input id="pre_drums" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_drums" class="prog" type="number" placeholder="패치#"></div>
+        <div class="vrow"><span class="vlab">기타외</span><input id="vst_other" placeholder=".vst3 경로"><input id="pre_other" class="narrow" placeholder="프리셋 경로(선택)"><input id="prg_other" class="prog" type="number" placeholder="패치#"></div>
+        <div class="note">패치#는 멀티팀브럴 악기(HALion 등) 음색 번호(0부터). 로직 내장 악기는 외부 호출 불가.</div>
+      </details>
     </details>
     <div class="row" style="margin-top:14px">
       <button class="btn" id="go" disabled>리메이크 시작</button>
@@ -257,6 +268,38 @@ function initRenderModes(){
 initRenderModes();
 function renderModes(){return {drums:$("#rm_drums").value, bass:$("#rm_bass").value, other:$("#rm_other").value,
   guitar:$("#rm_guitar").value, piano:$("#rm_piano").value};}
+
+// VST 악기 자동 탐지 → 파트별 드롭다운(선택 시 해당 vst 경로 입력을 채움)
+let _vstItems=[];
+function fillVsel(){
+  const mk=(sel,preferDrum)=>{
+    const el=document.querySelector(sel); if(!el) return;
+    let items=_vstItems.slice();
+    if(preferDrum) items.sort((a,b)=>(b.drum-a.drum)||(b.known-a.known));
+    const cur=el.value;
+    el.innerHTML='<option value="">(지정 안 함 — 위 재연주 방식대로)</option>'+
+      items.map(v=>`<option value="${v.path}">${v.known?"★ ":""}${v.name}${v.drum?" (드럼)":""}</option>`).join("");
+    if(cur) el.value=cur;
+  };
+  mk("#vsel_bass",false); mk("#vsel_drums",true); mk("#vsel_other",false);
+}
+fillVsel();
+["vsel_bass","vsel_drums","vsel_other"].forEach(id=>{
+  const el=$("#"+id); if(!el) return;
+  const map={vsel_bass:"vst_bass",vsel_drums:"vst_drums",vsel_other:"vst_other"};
+  el.addEventListener("change",()=>{ const inp=$("#"+map[id]); if(inp) inp.value=el.value; });
+});
+if($("#vstScan")) $("#vstScan").onclick=async()=>{
+  const msg=$("#vstScanMsg"), btn=$("#vstScan"); btn.disabled=true; msg.textContent="내 PC에서 검색 중...";
+  try{
+    const r=await fetch("/api/vst_scan"); const j=await r.json();
+    _vstItems=(j.items||[]).filter(v=>v.kind!=="effect");
+    fillVsel();
+    msg.textContent=_vstItems.length? ("악기 "+_vstItems.length+"개 찾음 — 파트별로 선택하세요(★=큐베이스 기본)")
+      : "VST3 악기를 못 찾았습니다. '직접 경로 지정(고급)'에서 .vst3 경로를 넣어주세요";
+  }catch(e){ msg.textContent="검색 실패: "+e; }
+  btn.disabled=false;
+};
 
 document.addEventListener("click", async e=>{
   if(e.target && e.target.id==="btnOpenDaw" && jobId){
