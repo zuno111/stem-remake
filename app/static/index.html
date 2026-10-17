@@ -290,24 +290,29 @@ fillVsel();
   el.addEventListener("change",()=>{ const inp=$("#"+map[id]); if(inp) inp.value=el.value; });
 });
 // 파트별 최적 악기 자동 선택(비어있는 파트만 채움 — 사용자가 이미 지정한 건 유지)
-function _pickVst(preferDrum){
+// _vstItems는 서버에서 known→pref 순으로 이미 정렬됨 → 조건 맞는 첫 항목이 최선.
+function _pickVst(opts){
+  opts=opts||{};
   const items=_vstItems.filter(v=>v.kind!=="effect");
-  if(preferDrum){ const d=items.filter(v=>v.drum); if(d.length) return d[0]; }
-  const known=items.filter(v=>v.known && !v.drum); if(known.length) return known[0];
-  const nd=items.filter(v=>!v.drum); return nd[0]||items[0]||null;
+  if(opts.drum){ const d=items.filter(v=>v.drum); if(d.length) return d[0]; }
+  const nd=items.filter(v=>!v.drum);
+  if(opts.synth){ const s=nd.filter(v=>v.synth); if(s.length) return s[0]; }      // 기타외: 신스 우선
+  if(opts.nonsynth){ const ns=nd.filter(v=>!v.synth); if(ns.length) return ns[0]; } // 베이스: 범용 워크스테이션 우선
+  const known=nd.filter(v=>v.known); if(known.length) return known[0];
+  return nd[0]||items[0]||null;
 }
 function autoAssignVst(){
   const done=[];
-  const assign=(selId,inpId,label,preferDrum)=>{
+  const assign=(selId,inpId,label,opts)=>{
     const inp=$("#"+inpId); if(inp && inp.value.trim()) return;  // 이미 지정됨 → 유지
-    const v=_pickVst(preferDrum); if(!v) return;
+    const v=_pickVst(opts); if(!v) return;
     if($("#"+selId)) $("#"+selId).value=v.path;
     if(inp) inp.value=v.path;
     done.push(label+"="+v.name);
   };
-  assign("vsel_drums","vst_drums","드럼",true);
-  assign("vsel_bass","vst_bass","베이스",false);
-  assign("vsel_other","vst_other","기타외",false);
+  assign("vsel_drums","vst_drums","드럼",{drum:true});
+  assign("vsel_bass","vst_bass","베이스",{nonsynth:true});
+  assign("vsel_other","vst_other","기타외",{synth:true});
   return done;
 }
 async function doVstScan(auto){
