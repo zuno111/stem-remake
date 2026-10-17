@@ -69,13 +69,44 @@ _FREE_INSTR = {
     "sitala": (17, False),
     "mdrummer": (17, False),
 }
+# 상용 인기 악기(큐베이스와 함께 쓰는 환경 자동배정 적중률↑)
+_COMMERCIAL = {
+    # 신스
+    "serum": (10, True),
+    "omnisphere": (10, True),
+    "pigments": (11, True),
+    "phase plant": (11, True), "phaseplant": (11, True),
+    "massive": (12, True),            # NI Massive / Massive X
+    "sylenth": (12, True),
+    "spire": (12, True),
+    "nexus": (13, True),
+    "repro": (13, True),
+    "avenger": (13, True),
+    # 샘플러·멜로디·건반
+    "kontakt": (16, False),           # NI Kontakt (범용 샘플러)
+    "pianoteq": (18, False),
+    "keyscape": (18, False),
+    "the grandeur": (19, False), "noire": (19, False), "una corda": (19, False),
+    "ample": (20, False),             # Ample Guitar/Bass
+    "trilian": (18, False),           # 베이스 샘플러
+    # 드럼(아래 _DRUM_HINT로도 드럼 태그)
+    "superior drummer": (12, False),
+    "ezdrummer": (12, False), "ez drummer": (12, False),
+    "addictive drums": (13, False),
+    "battery": (14, False),           # NI Battery(드럼 샘플러)
+    "bfd": (14, False),
+    "ssd": (15, False), "steven slate": (15, False),
+    "getgood": (14, False),           # GGD
+}
 _KNOWN = {}
 _KNOWN.update(_STEINBERG)
 _KNOWN.update(_FREE_INSTR)
+_KNOWN.update(_COMMERCIAL)
 
 _DRUM_HINT = ["groove agent", "drum", "beat", "mt power", "mt-power",
               "powerdrumkit", "power drum", "drumgizmo", "sitala", "mdrummer",
-              "kit", "percussion"]
+              "kit", "percussion",
+              "battery", "bfd", "ssd", "steven slate", "getgood", "ggd"]
 # 명백한 이펙트류(악기 아님) — 추천에서 제외
 _FX_HINT = ["reverb", "delay", "eq", "compressor", "limiter", "chorus",
             "flanger", "phaser", "gate", "maximizer", "distortion", "amp",
