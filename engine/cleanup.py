@@ -74,12 +74,29 @@ def fix_octave_spikes(notes, win=2):
     return out
 
 
+def remove_ghost_velocity(notes, floor_ratio=0.3, max_dur=0.15):
+    """아주 약하고(중앙값 대비) 동시에 짧은 유령 노트 제거.
+
+    분리 잔향/블리드가 전사된 '원곡에 없는' 음은 대개 매우 약하고 짧다.
+    약하기만 하거나(여린 실연주) 짧기만 한(스타카토) 음은 지우지 않도록
+    두 조건을 모두 만족할 때만 제거한다. 노트가 적으면 건너뜀.
+    """
+    if len(notes) < 6:
+        return notes
+    vels = sorted(n.get("vel", 90) for n in notes)
+    med = vels[len(vels) // 2] or 1
+    thr = floor_ratio * med
+    return [n for n in notes
+            if not (n.get("vel", 90) < thr and (n["end"] - n["start"]) < max_dur)]
+
+
 def clean_mono(notes, min_dur=0.09, gap_tol=0.03, fix_octave=True):
     out = notes
     if fix_octave:
         out = fix_octave_spikes(out)
     out = merge_adjacent(out, gap_tol=gap_tol)
     out = remove_short(out, min_dur=min_dur)
+    out = remove_ghost_velocity(out)
     return out
 
 
