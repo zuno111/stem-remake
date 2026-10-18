@@ -242,7 +242,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         produced["drums"] = synth.render_drums(drum_hits, sr, dur)
         report["vst_used"]["drums"] = "synth"
     else:  # keep: 원본 드럼 스템 정제해 유지(합성 키트로 안 바꿈)
-        produced["drums"] = np.asarray(mst.clean_instrument(_load(stem_paths["drums"], sr), sr, bright=False),
+        produced["drums"] = np.asarray(mst.clean_instrument(_load(stem_paths["drums"], sr), sr, bright=False, drums=True),
                                        dtype=np.float32)
         report["vst_used"]["drums"] = "clean_keep"
 
@@ -251,17 +251,30 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     if drum_split and "drums" in stem_paths:
         try:
             _progress(progress_cb, 64, "드럼 분해 (킥·스네어·하이햇·탐·심벌)")
-            from . import drumsplit as _ds
-            dy = _load(stem_paths["drums"], sr)
-            split_hits = drum_hits if drum_hits else _cl.dedup_drums(tr.transcribe_drums(dy, sr))
-            pieces = _ds.split_drum_stem(dy, sr, split_hits)
-            if pieces:
-                os.makedirs(pieces_dir, exist_ok=True)
-                for pname, audio in pieces.items():
-                    pp = os.path.join(pieces_dir, f"drum_{pname}.wav")
-                    sf.write(pp, np.asarray(audio, dtype=np.float32), sr)
-                    extra_stems[f"drum_{pname}"] = pp
-                report["drum_pieces"] = list(pieces.keys())
+            os.makedirs(pieces_dir, exist_ok=True)
+            # 1순위: MDX23C DrumSep 실제 모델(깨끗). 미설치/실패 시 band-pass 폴백.
+            from . import drumsep_model as _dm
+            model_out = _dm.split_drums_model(stem_paths["drums"], pieces_dir) if _dm.available() else None
+            if model_out:
+                for piece, path in model_out.items():
+                    a = _load(path, sr)
+                    pp = os.path.join(pieces_dir, f"drum_{piece}.wav")
+                    sf.write(pp, np.asarray(a, dtype=np.float32), sr)
+                    extra_stems[f"drum_{piece}"] = pp
+                report["drum_pieces"] = list(model_out.keys())
+                report["drumsep"] = "model"
+            else:
+                from . import drumsplit as _ds
+                dy = _load(stem_paths["drums"], sr)
+                split_hits = drum_hits if drum_hits else _cl.dedup_drums(tr.transcribe_drums(dy, sr))
+                pieces = _ds.split_drum_stem(dy, sr, split_hits)
+                if pieces:
+                    for pname, audio in pieces.items():
+                        pp = os.path.join(pieces_dir, f"drum_{pname}.wav")
+                        sf.write(pp, np.asarray(audio, dtype=np.float32), sr)
+                        extra_stems[f"drum_{pname}"] = pp
+                    report["drum_pieces"] = list(pieces.keys())
+                    report["drumsep"] = "bandpass"
         except Exception as e:
             print(f"[drumsplit] 실패(건너뜀): {e}")
 
@@ -360,8 +373,8 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
                 v = np.asarray(mst.clean_vocal(ys, sr), dtype=np.float32)
                 preserve_mix[nm] = mst.denoise_adaptive(v, sr, prop_decrease=0.3)
             elif nm == "drums":
-                # 드럼은 트랜지언트 보존 위해 디노이즈 제외(정제만)
-                preserve_mix[nm] = np.asarray(mst.clean_instrument(ys, sr, bright=False), dtype=np.float32)
+                # 드럼은 트랜지언트 보존 위해 디노이즈·컴프 제외(하이패스만)
+                preserve_mix[nm] = np.asarray(mst.clean_instrument(ys, sr, bright=False, drums=True), dtype=np.float32)
             else:
                 ci = np.asarray(mst.clean_instrument(ys, sr), dtype=np.float32)
                 preserve_mix[nm] = mst.denoise_adaptive(ci, sr, prop_decrease=0.35)

@@ -15,6 +15,9 @@ for pkg in [
     "soxr", "numba", "llvmlite", "sklearn", "flask", "waitress",
     "basic_pitch", "onnxruntime", "mir_eval", "resampy",
     "noisereduce",
+    # DrumSep(audio-separator) + 의존 — 드럼 조각 실제 모델 분리
+    "audio_separator", "onnx2torch", "ml_collections",
+    "rotary_embedding_torch", "beartype", "pydub", "samplerate",
 ]:
     try:
         d, b, h = collect_all(pkg)
@@ -27,6 +30,14 @@ for pkg in [
 # 앱 정적 리소스
 ROOT = os.path.abspath(os.path.join(os.getcwd(), ".."))
 datas += [(os.path.join(ROOT, "app", "static"), os.path.join("app", "static"))]
+
+# ffmpeg 동봉(audio-separator가 내부적으로 필요). 번들 루트에 두고 런처가 PATH에 추가.
+_ff = os.path.join(ROOT, "build", "ffmpeg", "ffmpeg.exe")
+if os.path.isfile(_ff):
+    binaries += [(_ff, ".")]
+    print(f"[spec] ffmpeg 번들: {_ff}")
+else:
+    print(f"[spec] ffmpeg 없음(드럼 조각 모델 분리는 band-pass 폴백): {_ff}")
 
 # 사전 다운로드한 Demucs 모델 번들 → 오프라인 실행.
 # STEMREMAKE_REQUIRE_MODELS=1 이면 모델 누락 시 빌드를 실패시켜 조용한 미포함을 막는다.

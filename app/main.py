@@ -29,6 +29,12 @@ if getattr(sys, "frozen", False):
     _models = os.path.join(BASE, "models")
     if os.path.isdir(_models):
         os.environ.setdefault("TORCH_HOME", _models)
+    # 번들된 ffmpeg를 PATH 앞에 추가(audio-separator가 subprocess로 ffmpeg 호출)
+    os.environ["PATH"] = BASE + os.pathsep + os.environ.get("PATH", "")
+    # 번들된 DrumSep 모델 폴더를 지정(런타임 다운로드 없이 오프라인 분리)
+    _as_models = os.path.join(_models, "audio_separator")
+    if os.path.isdir(_as_models):
+        os.environ.setdefault("STEMREMAKE_MODELS_DIR", _as_models)
     _LOG_DIR = os.path.dirname(sys.executable)
 else:
     BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

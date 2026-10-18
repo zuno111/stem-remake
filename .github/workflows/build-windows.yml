@@ -26,12 +26,15 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # audio-separator 0.28.5가 torch<2.5 요구 → 2.4.1로 고정(demucs와도 호환)
+          pip install torch==2.4.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements-lite.txt
           pip install demucs
           # 다성 전사(basic-pitch): tensorflow/numpy<2 핀 회피 위해 --no-deps + onnx 백엔드
           pip install --no-deps basic-pitch
           pip install onnxruntime mir_eval resampy
+          # 드럼 조각 실제 모델 분리(MDX23C DrumSep). numpy<2 호환 버전.
+          pip install "audio-separator==0.28.5"
           pip install pyinstaller==6.11.1
           # PyInstaller 6.11.1의 pkg_resources 런타임 훅이 setuptools>=81에서
           # NullProvider 제거로 깨짐 → 호환 버전으로 고정(맨 마지막에 설치)
@@ -49,6 +52,38 @@ jobs:
           $sz = "{0:N1} MB" -f ((Get-ChildItem -Recurse "${{ github.workspace }}\models" -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum/1MB)
           Write-Host "::warning title=models_dir_size::$sz"
           if ($LASTEXITCODE -ne 0) { Write-Host "::warning::모델 번들 실패(앱은 첫 실행 시 자동 다운로드). 빌드는 계속." }
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: Download ffmpeg (audio-separator 필수)
+        shell: pwsh
+        run: |
+          $dst = "${{ github.workspace }}\build\ffmpeg"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $zip = "$env:RUNNER_TEMP\ffmpeg.zip"
+          Invoke-WebRequest -UseBasicParsing -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\ffx" -Force
+          $exe = Get-ChildItem -Recurse "$env:RUNNER_TEMP\ffx" -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $exe.FullName (Join-Path $dst "ffmpeg.exe") -Force
+          & (Join-Path $dst "ffmpeg.exe") -version | Select-Object -First 1
+
+      - name: Pre-download DrumSep model (MDX23C)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:PATH = "${{ github.workspace }}\build\ffmpeg;$env:PATH"
+          $mdir = "${{ github.workspace }}\models\audio_separator"
+          New-Item -ItemType Directory -Force -Path $mdir | Out-Null
+          python - <<'PY'
+          import os
+          from audio_separator.separator import Separator
+          mdir = os.path.join(os.environ["GITHUB_WORKSPACE"], "models", "audio_separator")
+          sep = Separator(output_dir=mdir, model_file_dir=mdir, log_level=40)
+          sep.load_model(model_filename="MDX23C-DrumSep-aufr33-jarredou.ckpt")
+          print("DrumSep model files:", sorted(os.listdir(mdir)))
+          PY
+          $sz = "{0:N1} MB" -f ((Get-ChildItem -Recurse $mdir -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum/1MB)
+          Write-Host "::warning title=drumsep_model_size::$sz"
           $global:LASTEXITCODE = 0
           exit 0
 

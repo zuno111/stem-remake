@@ -86,12 +86,15 @@ def clean_vocal(y, sr):
     return board(y, sr)
 
 
-def clean_instrument(y, sr, bright=True):
-    """악기 스템 정제(폴리포닉 파트 유지용): 저역 정리 + 가벼운 EQ. 리버브 없음."""
-    chain = [
-        HighpassFilter(cutoff_frequency_hz=35),
-        Compressor(threshold_db=-22, ratio=2.0, attack_ms=8, release_ms=140),
-    ]
+def clean_instrument(y, sr, bright=True, drums=False):
+    """악기 스템 정제: 저역 정리 + 가벼운 EQ. 리버브 없음.
+
+    drums=True면 컴프레서를 빼고 하이패스만 — 8ms 어택 컴프가 드럼 트랜지언트(킥/스네어
+    펀치)를 뭉개고 펌핑을 만들기 때문. 드럼은 분리 스템을 거의 날것으로 유지한다.
+    """
+    chain = [HighpassFilter(cutoff_frequency_hz=35)]
+    if not drums:
+        chain.append(Compressor(threshold_db=-22, ratio=2.0, attack_ms=8, release_ms=140))
     if bright:
         chain.append(HighShelfFilter(cutoff_frequency_hz=8000, gain_db=1.5))
     return Pedalboard(chain)(y, sr)

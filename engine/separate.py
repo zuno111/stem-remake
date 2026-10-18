@@ -28,7 +28,7 @@ def _have_demucs():
         return False
 
 
-def separate_demucs(input_path, out_dir, model_name="htdemucs"):
+def separate_demucs(input_path, out_dir, model_name="htdemucs", shifts=2):
     """Demucs로 스템 분리. model_name='htdemucs_6s'면 6스템(guitar·piano 포함).
 
     오디오 로딩은 demucs 기본 AudioFile(ffmpeg 외부 실행파일 의존) 대신
@@ -59,7 +59,9 @@ def separate_demucs(input_path, out_dir, model_name="htdemucs"):
     ref = wav.mean(0)
     wav = (wav - ref.mean()) / (ref.std() + 1e-8)
     with torch.no_grad():
-        sources = apply_model(model, wav[None], device="cpu", progress=True)[0]
+        # shifts: 테스트타임 증강(여러 시프트 평균) → 분리 아티팩트/번짐 감소. 시간은 배로.
+        sources = apply_model(model, wav[None], device="cpu", progress=True,
+                              shifts=int(shifts), overlap=0.25)[0]
     sources = sources * ref.std() + ref.mean()
 
     os.makedirs(out_dir, exist_ok=True)
@@ -115,13 +117,13 @@ def separate_lite(input_path, out_dir, sr=44100):
     return paths, sr
 
 
-def separate(input_path, out_dir, backend="auto", sr=44100, model_name="htdemucs"):
+def separate(input_path, out_dir, backend="auto", sr=44100, model_name="htdemucs", shifts=2):
     """(paths, sr, used_backend) 반환. used_backend는 실제로 성공한 백엔드."""
     if backend == "auto":
         backend = "demucs" if _have_demucs() else "lite"
     if backend == "demucs":
         try:
-            paths, msr = separate_demucs(input_path, out_dir, model_name=model_name)
+            paths, msr = separate_demucs(input_path, out_dir, model_name=model_name, shifts=shifts)
             return paths, msr, "demucs"
         except Exception as e:
             print(f"[separate] demucs 실패 → lite 폴백: {e}")
