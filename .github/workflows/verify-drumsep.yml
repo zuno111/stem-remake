@@ -1,0 +1,63 @@
+name: verify-drumsep
+
+# audio-separator(0.28.5) + MDX23C DrumSep 모델이 실제로 설치·다운로드·분리되는지
+# exe 빌드와 분리해서 먼저 검증한다(의존성/모델/실행 가능성 확인용).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/verify-drumsep.yml' ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install "numpy>=1.23,<2"
+          pip install torch==2.4.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install "audio-separator==0.28.5" onnxruntime soundfile scipy
+          python -c "import audio_separator, numpy, torch; print('audio_separator OK, numpy', numpy.__version__, 'torch', torch.__version__)"
+
+      - name: Run DrumSep on a synthetic drum clip
+        shell: bash
+        run: |
+          python - <<'PY'
+          import numpy as np, soundfile as sf, os, glob
+          sr=44100; dur=3.0; n=int(sr*dur); t=np.arange(n)/sr
+          y=np.zeros(n,dtype=np.float32)
+          def add(f0,at,decay,amp,noise=False):
+              s=int(at*sr); L=int(0.3*sr); tt=np.arange(L)/sr
+              if noise: w=np.random.randn(L)*np.exp(-tt*decay)
+              else: w=np.sin(2*np.pi*f0*tt)*np.exp(-tt*decay)
+              e=min(s+L,n); y[s:e]+=(w[:e-s]*amp).astype(np.float32)
+          for bar in range(6):
+              b=bar*0.5
+              add(60,b,18,0.9)          # kick
+              add(200,b+0.25,22,0.6,noise=True)  # snare(noise)
+              add(8000,b+0.125,90,0.3,noise=True) # hat
+          os.makedirs('out',exist_ok=True)
+          sf.write('drums_in.wav', y, sr)
+
+          from audio_separator.separator import Separator
+          sep=Separator(output_dir='out', model_file_dir='models')
+          sep.load_model(model_filename='MDX23C-DrumSep-aufr33-jarredou.ckpt')
+          files=sep.separate('drums_in.wav')
+          print('RESULT_FILES', files)
+          outs=glob.glob('out/*.wav')
+          for f in outs:
+              a,_=sf.read(f); print('  stem', os.path.basename(f), 'rms', float(np.sqrt(np.mean(a**2))))
+          assert len(outs)>=2, '분리 스템이 2개 미만 — 실패'
+          print('DRUMSEP_OK', len(outs), 'stems')
+          PY
+
+      - name: Report
+        if: always()
+        run: echo "done"
