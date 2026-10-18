@@ -29,23 +29,18 @@ jobs:
       - name: Run DrumSep on a synthetic drum clip
         shell: bash
         run: |
-          python - <<'PY'
+          cat > ds_test.py <<'PY'
           import numpy as np, soundfile as sf, os, glob
-          sr=44100; dur=3.0; n=int(sr*dur); t=np.arange(n)/sr
+          sr=44100; dur=3.0; n=int(sr*dur)
           y=np.zeros(n,dtype=np.float32)
           def add(f0,at,decay,amp,noise=False):
               s=int(at*sr); L=int(0.3*sr); tt=np.arange(L)/sr
-              if noise: w=np.random.randn(L)*np.exp(-tt*decay)
-              else: w=np.sin(2*np.pi*f0*tt)*np.exp(-tt*decay)
+              w=(np.random.randn(L) if noise else np.sin(2*np.pi*f0*tt))*np.exp(-tt*decay)
               e=min(s+L,n); y[s:e]+=(w[:e-s]*amp).astype(np.float32)
           for bar in range(6):
               b=bar*0.5
-              add(60,b,18,0.9)          # kick
-              add(200,b+0.25,22,0.6,noise=True)  # snare(noise)
-              add(8000,b+0.125,90,0.3,noise=True) # hat
-          os.makedirs('out',exist_ok=True)
-          sf.write('drums_in.wav', y, sr)
-
+              add(60,b,18,0.9); add(200,b+0.25,22,0.6,True); add(8000,b+0.125,90,0.3,True)
+          os.makedirs('out',exist_ok=True); sf.write('drums_in.wav', y, sr)
           from audio_separator.separator import Separator
           sep=Separator(output_dir='out', model_file_dir='models')
           sep.load_model(model_filename='MDX23C-DrumSep-aufr33-jarredou.ckpt')
@@ -53,10 +48,19 @@ jobs:
           print('RESULT_FILES', files)
           outs=glob.glob('out/*.wav')
           for f in outs:
-              a,_=sf.read(f); print('  stem', os.path.basename(f), 'rms', float(np.sqrt(np.mean(a**2))))
-          assert len(outs)>=2, '분리 스템이 2개 미만 — 실패'
-          print('DRUMSEP_OK', len(outs), 'stems')
+              a,_=sf.read(f); print('  stem', os.path.basename(f), 'rms', float(np.sqrt(np.mean(np.asarray(a,dtype=float)**2))))
+          assert len(outs)>=2, 'stems<2'
+          print('DRUMSEP_OK', len(outs))
           PY
+          set +e
+          python ds_test.py > run.log 2>&1
+          code=$?
+          echo "=== run.log ==="; cat run.log
+          if [ $code -ne 0 ]; then
+            esc=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' run.log)
+            echo "::error title=drumsep-fail::$esc"
+            exit 1
+          fi
 
       - name: Report
         if: always()
