@@ -1,6 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller 스펙 — 스템 리메이크 단독 실행 빌드(onedir).
 import os
+import sys
+# 윈도우 cp1252 콘솔에서 비ASCII 출력 시 UnicodeEncodeError로 빌드가 죽는 것 방지
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
@@ -35,9 +42,9 @@ datas += [(os.path.join(ROOT, "app", "static"), os.path.join("app", "static"))]
 _ff = os.path.join(ROOT, "build", "ffmpeg", "ffmpeg.exe")
 if os.path.isfile(_ff):
     binaries += [(_ff, ".")]
-    print(f"[spec] ffmpeg 번들: {_ff}")
+    print(f"[spec] ffmpeg bundled: {_ff}")
 else:
-    print(f"[spec] ffmpeg 없음(드럼 조각 모델 분리는 band-pass 폴백): {_ff}")
+    print(f"[spec] ffmpeg NOT found (drumsep model will fall back to band-pass): {_ff}")
 
 # 사전 다운로드한 Demucs 모델 번들 → 오프라인 실행.
 # STEMREMAKE_REQUIRE_MODELS=1 이면 모델 누락 시 빌드를 실패시켜 조용한 미포함을 막는다.
