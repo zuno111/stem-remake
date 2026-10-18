@@ -89,6 +89,9 @@ def _render_part(name, stem_path, notes, mode, sr, dur, instrument_map):
         except Exception as e:
             print(f"[{name}] VST 실패 → 폴백: {e}")
     y = _load(stem_path, sr)
+    if mode == "sample":
+        from . import sampler as smp
+        return np.asarray(smp.render_sampler(notes or [], y, sr, dur), dtype=np.float32), "sample"
     if mode == "transfer":
         return np.asarray(tt.render_notes(notes or [], y, sr, dur), dtype=np.float32), "transfer"
     if mode and mode.startswith("synth"):
@@ -221,7 +224,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     im_d = (instrument_map or {}).get("drums")
     drum_mode = rmodes.get("drums", "keep")
     drum_hits = []
-    if daw_export or (im_d and im_d.get("path")) or drum_mode == "synth":
+    if daw_export or (im_d and im_d.get("path")) or drum_mode in ("synth", "sample"):
         drum_hits = tr.transcribe_drums(_load(stem_paths["drums"], sr), sr)
         drum_hits = _cl.dedup_drums(drum_hits)
         drum_hits = _maybe_quantize_drums(drum_hits, report, quantize)
@@ -238,6 +241,12 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             print(f"[drums] VST 실패 → 합성 폴백: {e}")
             produced["drums"] = synth.render_drums(drum_hits, sr, dur)
             report["vst_used"]["drums"] = "synth"
+    elif drum_mode == "sample":
+        from . import sampler as smp
+        produced["drums"] = np.asarray(
+            smp.render_drum_sampler(drum_hits, _load(stem_paths["drums"], sr), sr, dur),
+            dtype=np.float32)
+        report["vst_used"]["drums"] = "sample"
     elif drum_mode == "synth":
         produced["drums"] = synth.render_drums(drum_hits, sr, dur)
         report["vst_used"]["drums"] = "synth"

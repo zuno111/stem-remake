@@ -251,7 +251,9 @@ function enhParams(){return {denoise:+$("#e_denoise").value,low_gain:+$("#e_low"
   comp:+$("#e_comp").value,target_lufs:+$("#e_lufs").value};}
 
 // 파트별 재연주 방식
-const RM_OPTS=[["keep","원본 음색 유지"],["transfer","음색 전사 (전자음 보존)"],
+const RM_OPTS=[["keep","원본 음색 유지"],
+  ["sample","원곡 샘플 재연주 (원곡 음색 그대로 — 추천)"],
+  ["transfer","음색 전사 (전자음 보존)"],
   ["synth:sine","합성악기 1 (순음·플루트계)"],
   ["synth:keys","합성악기 2 (톱니 키보드)"],
   ["synth:pad","합성악기 3 (따뜻한 패드)"],
@@ -263,7 +265,9 @@ const RM_OPTS=[["keep","원본 음색 유지"],["transfer","음색 전사 (전�
   ["synth:synthlead","합성악기 9 (신스 리드)"],
   ["synth:fmbell","합성악기 10 (FM벨·전자음)"]];
 // 드럼은 음색 전사·멜로디 합성이 안 맞아 '원본 유지 / 합성 드럼'만
-const DRUM_OPTS=[["keep","원본 유지"],["synth","합성 드럼 (재연주)"]];
+const DRUM_OPTS=[["keep","원본 유지"],
+  ["sample","원곡 샘플 재연주 (원곡 드럼 소리)"],
+  ["synth","합성 드럼 (재연주)"]];
 const RM_DEFAULT={rm_drums:"keep",rm_bass:"transfer",rm_other:"keep",rm_guitar:"keep",rm_piano:"keep"};
 function initRenderModes(){
   ["rm_bass","rm_other","rm_guitar","rm_piano"].forEach(id=>{
@@ -504,6 +508,7 @@ function showResult(j){
     const m=vu[nm]; if(!m) return "";
     let t, warn=false;
     if(m==="vst") t="큐베이스/VST 악기";
+    else if(m==="sample") t="원곡 샘플 재연주";
     else if(m==="transfer") t="음색 전사";
     else if(m==="clean_keep") t="원본 정제 유지";
     else if(m==="synth"){ t="합성 드럼"; if(vreq[nm]) warn=true; }

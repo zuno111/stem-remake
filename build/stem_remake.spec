@@ -8,9 +8,21 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_submodules
+
+# engine import 가능하도록 프로젝트 루트를 경로에 추가(collect_submodules용)
+_ROOT_EARLY = os.path.abspath(os.path.join(os.getcwd(), ".."))
+if _ROOT_EARLY not in sys.path:
+    sys.path.insert(0, _ROOT_EARLY)
 
 datas, binaries, hiddenimports = [], [], []
+
+# engine 패키지 전체 서브모듈 포함(지연 import되는 sampler/drumsep_model/drumsplit 등 누락 방지)
+try:
+    hiddenimports += collect_submodules("engine")
+    print(f"[spec] engine submodules: {len([h for h in hiddenimports if h.startswith('engine')])}")
+except Exception as e:
+    print(f"[spec] collect_submodules(engine) skip: {e}")
 
 # 무거운 패키지는 데이터·바이너리·서브모듈을 통째로 수집
 # numpy를 명시적으로 먼저 수집 — 미포함 시 numpy._core._exceptions 누락으로 시작 크래시
