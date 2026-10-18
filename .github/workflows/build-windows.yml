@@ -90,7 +90,15 @@ jobs:
       - name: Build (PyInstaller)
         shell: pwsh
         working-directory: build
-        run: pyinstaller stem_remake.spec --noconfirm --clean
+        run: |
+          pyinstaller stem_remake.spec --noconfirm --clean 2>&1 | Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $tail = (Get-Content build.log -Tail 60) -join "`n"
+            $esc = $tail -replace '%','%25' -replace "`r","%0D" -replace "`n","%0A"
+            Write-Host "::error title=pyinstaller-build::$esc"
+            exit 1
+          }
 
       - name: Smoke launch test (실제 실행 + 헬스체크)
         shell: pwsh
