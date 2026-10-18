@@ -94,9 +94,12 @@ jobs:
           pyinstaller stem_remake.spec --noconfirm --clean 2>&1 | Tee-Object -FilePath build.log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $tail = (Get-Content build.log -Tail 60) -join "`n"
-            $esc = $tail -replace '%','%25' -replace "`r","%0D" -replace "`n","%0A"
-            Write-Host "::error title=pyinstaller-build::$esc"
+            # 에러성 라인만 추려서 annotation으로(경고 노이즈 제외)
+            $errs = Select-String -Path build.log -Pattern 'Traceback|Error|Exception|raise |Errno|No space|MemoryError|Killed|FileNotFound|PermissionError|AssertionError|RecursionError|^\d+ ERROR' -CaseSensitive:$false | Select-Object -Last 40
+            $txt = ($errs | ForEach-Object { $_.Line }) -join "`n"
+            if (-not $txt) { $txt = (Get-Content build.log -Tail 25) -join "`n" }
+            $esc = $txt -replace '%','%25' -replace "`r","%0D" -replace "`n","%0A"
+            Write-Host "::error title=pyinstaller-err::$esc"
             exit 1
           }
 
