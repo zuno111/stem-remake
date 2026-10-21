@@ -34,8 +34,11 @@ def _slice(y, sr, start, end, pre=0.01, post=0.06):
     return _fade(seg, sr)
 
 
-def build_melodic_bank(y, sr, notes, max_per_pitch=3):
-    """음표별 스템 구간을 떼어 {midi: [샘플,...]} 뱅크 구성. 에너지 큰 것 우선."""
+def build_melodic_bank(y, sr, notes, max_per_pitch=3, pre=0.01, post=0.06):
+    """음표별 스템 구간을 떼어 {midi: [샘플,...]} 뱅크 구성. 에너지 큰 것 우선.
+
+    pre/post: 음표 앞뒤로 더 떼어낼 여유(초). post가 크면 꼬리 여운이 길게 담긴다.
+    """
     y = np.asarray(y, dtype=np.float32)
     ns = sorted(notes or [], key=lambda n: n["start"])
     bank = {}
@@ -43,7 +46,7 @@ def build_melodic_bank(y, sr, notes, max_per_pitch=3):
         end = n["end"]
         if i + 1 < len(ns):
             end = min(end, ns[i + 1]["start"])   # 다음 음 전까지(겹침 방지)
-        seg = _slice(y, sr, n["start"], end)
+        seg = _slice(y, sr, n["start"], end, pre=pre, post=post)
         if seg is None or seg.size < int(0.02 * sr):
             continue
         rms = float(np.sqrt(np.mean(seg ** 2)))
@@ -66,16 +69,26 @@ def _nearest_sample(bank, midi):
     return bank[best][0], midi - best   # (샘플, 반음차)
 
 
-def render_sampler(notes, y, sr, duration, rng_seed=7):
-    """멜로디 음표열을 원곡 샘플로 재연주. 뱅크가 비면 원본 스템 그대로 반환."""
+def render_sampler(notes, y, sr, duration, rng_seed=7, opts=None):
+    """멜로디 음표열을 원곡 샘플로 재연주. 뱅크가 비면 원본 스템 그대로 반환.
+
+    opts(조절 가능):
+      pre/post(초): 샘플 떼는 앞뒤 여유. post↑ = 꼬리 여운↑
+      fit_length(bool): True면 음 길이에 맞춰 자름, False면 원본 샘플 자연 감쇠 그대로
+      vel_amt(0~1): 세기(vel) 반영 정도. 0=세기 무시, 1=최대 반영
+      fade_out(초): 끝부분 페이드(클릭 방지)
+    """
+    o = dict(pre=0.01, post=0.06, fit_length=True, vel_amt=0.4, fade_out=0.02)
+    if opts:
+        o.update({k: v for k, v in opts.items() if v is not None})
     y = np.asarray(y, dtype=np.float32)
-    bank = build_melodic_bank(y, sr, notes)
+    bank = build_melodic_bank(y, sr, notes, pre=float(o["pre"]), post=float(o["post"]))
     out = np.zeros(int(duration * sr) + sr, dtype=np.float32)
     if not bank:
         n = min(len(y), len(out))
         out[:n] = y[:n]
         return out[: int(duration * sr)]
-    rng = np.random.RandomState(rng_seed)
+    va = float(np.clip(o["vel_amt"], 0.0, 1.0))
     for n in sorted(notes or [], key=lambda x: x["start"]):
         samp, steps = _nearest_sample(bank, int(n["midi"]))
         if samp is None:
@@ -86,12 +99,14 @@ def render_sampler(notes, y, sr, duration, rng_seed=7):
                 s = librosa.effects.pitch_shift(s, sr=sr, n_steps=float(steps))
             except Exception:
                 pass
-        # 음 길이에 맞춰 자르기(길면 자연 감쇠 유지, 짧으면 그대로) + 페이드
-        dur_n = max(int((n["end"] - n["start"]) * sr), int(0.05 * sr))
-        s = s[:dur_n] if len(s) > dur_n else s
-        s = _fade(np.array(s, dtype=np.float32), sr)
-        # 세기: 원곡 샘플 레벨을 기준으로 vel 반영(과증폭 방지)
-        amp = 0.6 + 0.4 * (n.get("vel", 90) / 127.0)
+        s = np.array(s, dtype=np.float32)
+        if o["fit_length"]:
+            dur_n = max(int((n["end"] - n["start"]) * sr), int(0.05 * sr))
+            if len(s) > dur_n:
+                s = s[:dur_n]
+        s = _fade(s, sr, fout=float(o["fade_out"]))
+        # 세기 반영(과증폭 방지): va=0이면 1.0 고정, va=1이면 vel 그대로
+        amp = (1.0 - va) + va * (n.get("vel", 90) / 127.0)
         s = s * float(amp)
         st = int(n["start"] * sr)
         if st < 0:
@@ -112,13 +127,16 @@ _DRUM_WIN = {  # 클래스별 떼어낼 길이(초)
 }
 
 
-def build_drum_bank(y, sr, hits, max_per_class=6):
-    """분류된 타격마다 실제 히트 조각을 떼어 {class: [샘플,...]} 뱅크 구성."""
+def build_drum_bank(y, sr, hits, max_per_class=6, tail_scale=1.0):
+    """분류된 타격마다 실제 히트 조각을 떼어 {class: [샘플,...]} 뱅크 구성.
+
+    tail_scale: 조각 길이 배율. 1.0=기본, 크면 드럼 여운이 길게 담긴다.
+    """
     y = np.asarray(y, dtype=np.float32)
     bank = {}
     for h in hits or []:
         d = h.get("drum", "snare")
-        win = _DRUM_WIN.get(d, 0.25)
+        win = _DRUM_WIN.get(d, 0.25) * float(tail_scale)
         s = max(0, int(h["time"] * sr))
         e = min(len(y), s + int(win * sr))
         if e <= s:
@@ -133,23 +151,32 @@ def build_drum_bank(y, sr, hits, max_per_class=6):
     return bank
 
 
-def render_drum_sampler(hits, y, sr, duration, rng_seed=11):
-    """드럼 패턴을 원곡의 실제 드럼 히트 소리로 재배치. 뱅크 비면 원본 반환."""
+def render_drum_sampler(hits, y, sr, duration, rng_seed=11, opts=None):
+    """드럼 패턴을 원곡의 실제 드럼 히트 소리로 재배치. 뱅크 비면 원본 반환.
+
+    opts(조절 가능):
+      tail_scale: 조각(여운) 길이 배율
+      vel_amt(0~1): 세기 반영 정도
+    """
+    o = dict(tail_scale=1.0, vel_amt=0.4)
+    if opts:
+        o.update({k: v for k, v in opts.items() if v is not None})
     y = np.asarray(y, dtype=np.float32)
-    bank = build_drum_bank(y, sr, hits)
+    bank = build_drum_bank(y, sr, hits, tail_scale=float(o["tail_scale"]))
     out = np.zeros(int(duration * sr) + sr, dtype=np.float32)
     if not bank:
         n = min(len(y), len(out))
         out[:n] = y[:n]
         return out[: int(duration * sr)]
     rng = np.random.RandomState(rng_seed)
+    va = float(np.clip(o["vel_amt"], 0.0, 1.0))
     # 클래스 대체(알 수 없는 라벨 → 가까운 것)
     alias = {"open_hat": "hat", "ride": "crash"}
     for h in hits or []:
         d = h.get("drum", "snare")
         pool = bank.get(d) or bank.get(alias.get(d, ""), None) or bank.get("snare") or next(iter(bank.values()))
         s = pool[rng.randint(len(pool))]
-        amp = 0.6 + 0.4 * (h.get("vel", 100) / 127.0)
+        amp = (1.0 - va) + va * (h.get("vel", 100) / 127.0)
         s = np.array(s, dtype=np.float32) * float(amp)
         st = max(0, int(h["time"] * sr))
         e = min(st + len(s), len(out))

@@ -75,10 +75,10 @@ def _mode_needs_notes(mode):
     return bool(mode) and mode != "keep"
 
 
-def _render_part(name, stem_path, notes, mode, sr, dur, instrument_map):
+def _render_part(name, stem_path, notes, mode, sr, dur, instrument_map, sampler_opts=None):
     """
-    파트 렌더. mode: 'keep'(원본 음색 유지) | 'transfer'(음색 전사) | 'synth[:악기]'(합성).
-    VST(instrument_map)가 지정되면 최우선. (audio, used)
+    파트 렌더. mode: 'keep'(원본 음색 유지) | 'sample'(원곡 샘플 재연주) |
+    'transfer'(음색 전사) | 'synth[:악기]'(합성). VST(instrument_map)가 지정되면 최우선.
     """
     im = (instrument_map or {}).get(name)
     if im and im.get("path"):
@@ -91,7 +91,7 @@ def _render_part(name, stem_path, notes, mode, sr, dur, instrument_map):
     y = _load(stem_path, sr)
     if mode == "sample":
         from . import sampler as smp
-        return np.asarray(smp.render_sampler(notes or [], y, sr, dur), dtype=np.float32), "sample"
+        return np.asarray(smp.render_sampler(notes or [], y, sr, dur, opts=sampler_opts), dtype=np.float32), "sample"
     if mode == "transfer":
         return np.asarray(tt.render_notes(notes or [], y, sr, dur), dtype=np.float32), "transfer"
     if mode and mode.startswith("synth"):
@@ -131,7 +131,7 @@ def _maybe_keysnap(notes, report, keysnap_on):
 def run(input_path, out_dir, backend="auto", preset="instrumental",
         instrument_map=None, daw_export=False, six_stem=False, quantize=None,
         bpm_override=None, key_override=None, gains=None, keysnap=False,
-        compare=False, render_modes=None, drum_split=True, progress_cb=None):
+        compare=False, render_modes=None, drum_split=True, sampler_opts=None, progress_cb=None):
     os.makedirs(out_dir, exist_ok=True)
     stems_dir = os.path.join(out_dir, "stems")
     retrack_dir = os.path.join(out_dir, "retrack")
@@ -216,7 +216,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     bass_notes = _maybe_keysnap(bass_notes, report, keysnap)
     bass_notes = _maybe_quantize_notes(bass_notes, report, quantize)
     parts["bass"] = bass_notes
-    produced["bass"], bk = _render_part("bass", stem_paths["bass"], bass_notes, rmodes.get("bass"), sr, dur, instrument_map)
+    produced["bass"], bk = _render_part("bass", stem_paths["bass"], bass_notes, rmodes.get("bass"), sr, dur, instrument_map, sampler_opts)
     report["vst_used"]["bass"] = bk
 
     # drums: 파트별 방식(기본=원본 유지). 합성 모드면 전사→합성 드럼 키트.
@@ -244,7 +244,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
     elif drum_mode == "sample":
         from . import sampler as smp
         produced["drums"] = np.asarray(
-            smp.render_drum_sampler(drum_hits, _load(stem_paths["drums"], sr), sr, dur),
+            smp.render_drum_sampler(drum_hits, _load(stem_paths["drums"], sr), sr, dur, opts=sampler_opts),
             dtype=np.float32)
         report["vst_used"]["drums"] = "sample"
     elif drum_mode == "synth":
@@ -311,7 +311,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
         parts["other"] = other_notes
     if pol_other != "skip":
         _progress(progress_cb, 78, "기타외 렌더")
-        produced["other"], ok = _render_part("other", stem_paths["other"], other_notes or [], other_mode, sr, dur, instrument_map)
+        produced["other"], ok = _render_part("other", stem_paths["other"], other_notes or [], other_mode, sr, dur, instrument_map, sampler_opts)
         report["vst_used"]["other"] = ok
 
     # guitar / piano (6스템일 때만): 파트별 렌더 방식(기본=원본 유지)
@@ -336,7 +336,7 @@ def run(input_path, out_dir, backend="auto", preset="instrumental",
             en = _maybe_keysnap(en, report, keysnap)
             en = _maybe_quantize_notes(en, report, quantize)
             parts[extra] = en
-        produced[extra], ek = _render_part(extra, stem_paths[extra], en or [], e_mode, sr, dur, instrument_map)
+        produced[extra], ek = _render_part(extra, stem_paths[extra], en or [], e_mode, sr, dur, instrument_map, sampler_opts)
         report["vst_used"][extra] = ek
 
     # vocals

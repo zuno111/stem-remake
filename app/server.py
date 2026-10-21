@@ -28,7 +28,7 @@ JOBS = {}  # job_id -> {status, pct, msg, result, stems, error, input}
 
 def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrument_map,
              six_stem=False, quantize=None, bpm_override=None, key_override=None, gains=None,
-             keysnap=False, compare=False, enh=None, render_modes=None, drum_split=True):
+             keysnap=False, compare=False, enh=None, render_modes=None, drum_split=True, sampler_opts=None):
     job = JOBS[job_id]
 
     def cb(pct, msg):
@@ -68,7 +68,7 @@ def _run_job(job_id, input_path, job_dir, preset, backend, daw_export, instrumen
                            six_stem=six_stem, quantize=quantize,
                            bpm_override=bpm_override, key_override=key_override, gains=gains,
                            keysnap=keysnap, compare=compare, render_modes=render_modes,
-                           drum_split=drum_split, progress_cb=cb)
+                           drum_split=drum_split, sampler_opts=sampler_opts, progress_cb=cb)
         job["result"] = out["result"]
         job["result_preserve"] = out.get("result_preserve")
         job["stems"] = out["stems"]
@@ -120,6 +120,11 @@ def process():
     keysnap = request.form.get("keysnap", "false").lower() == "true"
     compare = request.form.get("compare", "false").lower() == "true"
     drum_split = request.form.get("drum_split", "true").lower() == "true"
+    so_raw = request.form.get("sampler_opts", "")
+    try:
+        sampler_opts = _json.loads(so_raw) if so_raw.strip() else None
+    except Exception:
+        sampler_opts = None
     enh_raw = request.form.get("enh", "")
     try:
         enh = _json.loads(enh_raw) if enh_raw.strip() else None
@@ -149,7 +154,7 @@ def process():
     threading.Thread(target=_run_job,
                      args=(job_id, in_path, job_dir, preset, backend, daw_export, instrument_map,
                            six_stem, quantize, bpm_override, key_override, gains, keysnap, compare,
-                           enh, render_modes, drum_split),
+                           enh, render_modes, drum_split, sampler_opts),
                      daemon=True).start()
     return jsonify({"job_id": job_id})
 

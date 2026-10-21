@@ -172,6 +172,14 @@
       <div class="vrow"><span class="vlab">기타</span><select id="rm_guitar" class="qsel rmsel"></select></div>
       <div class="vrow"><span class="vlab">피아노</span><select id="rm_piano" class="qsel rmsel"></select></div>
     </details>
+    <details class="vst">
+      <summary>원곡 샘플 재연주 세부조절 (방식이 '원곡 샘플 재연주'일 때 적용)</summary>
+      <div class="note" style="margin:8px 0">원곡에서 떼는 소리 조각 길이와 재배치 방식을 조절합니다.</div>
+      <div class="vrow"><span class="vlab">샘플 꼬리 길이</span><input id="sp_post" type="range" min="10" max="400" step="5" value="60"><span class="gval" id="spv_post">60 ms</span></div>
+      <div class="vrow"><span class="vlab">음 길이 맞춤</span><label class="chk" style="margin:0"><input type="checkbox" id="sp_fit" checked> 켜면 음 길이에 맞춰 자름 / 끄면 원음 자연 감쇠 유지</label></div>
+      <div class="vrow"><span class="vlab">세기 반영</span><input id="sp_vel" type="range" min="0" max="1" step="0.05" value="0.4"><span class="gval" id="spv_vel">0.40</span></div>
+      <div class="vrow"><span class="vlab">드럼 여운 배율</span><input id="sp_tail" type="range" min="0.5" max="3" step="0.1" value="1.0"><span class="gval" id="spv_tail">1.0×</span></div>
+    </details>
     <details class="vst" open>
       <summary>큐베이스/VST 악기로 재연주 (설치된 악기 자동 찾기)</summary>
       <div class="note" style="margin:8px 0">설치된 큐베이스/Steinberg 악기(HALion Sonic SE·Groove Agent SE 등)를 찾아 파트별로 지정하면, 전사한 연주를 그 실제 악기 음색으로 렌더합니다. 지정한 파트는 위의 재연주 방식보다 VST가 우선합니다.</div>
@@ -249,6 +257,14 @@ const _fmtDb=v=>(v>0?"+":"")+parseFloat(v).toFixed(1)+" dB";
 function enhParams(){return {denoise:+$("#e_denoise").value,low_gain:+$("#e_low").value,
   mud_cut:+$("#e_mud").value,deharsh:+$("#e_harsh").value,air:+$("#e_air").value,
   comp:+$("#e_comp").value,target_lufs:+$("#e_lufs").value};}
+
+// 원곡 샘플 재연주 세부조절
+[["sp_post","spv_post",v=>v+" ms"],["sp_vel","spv_vel",v=>parseFloat(v).toFixed(2)],
+ ["sp_tail","spv_tail",v=>parseFloat(v).toFixed(1)+"×"]].forEach(([id,lab,fmt])=>{
+  const el=$("#"+id); if(el) el.addEventListener("input",()=>{$("#"+lab).textContent=fmt(el.value);});
+});
+function samplerOpts(){return {post:(+$("#sp_post").value)/1000, fit_length:$("#sp_fit").checked,
+  vel_amt:+$("#sp_vel").value, tail_scale:+$("#sp_tail").value};}
 
 // 파트별 재연주 방식
 const RM_OPTS=[["keep","원본 음색 유지"],
@@ -378,6 +394,7 @@ function saveSettings(){
   try{
     const s={preset,daw:$("#daw").checked,six:$("#six").checked,quant:$("#quant").checked,
       reperf:$("#reperf").checked,drumsplit:$("#drumsplit").checked,
+      sp:{post:$("#sp_post").value,fit:$("#sp_fit").checked,vel:$("#sp_vel").value,tail:$("#sp_tail").value},
       compare:$("#compare").checked, enh:enhParams(), rm:renderModes(),
       qdiv:$("#qdiv").value,qstr:$("#qstr").value,keysnap:$("#keysnap").checked,
       vst_bass:$("#vst_bass").value,vst_drums:$("#vst_drums").value,vst_other:$("#vst_other").value,
@@ -397,6 +414,11 @@ function loadSettings(){
     if(s.keysnap!=null)$("#keysnap").checked=s.keysnap;
     if(s.reperf!=null)$("#reperf").checked=s.reperf;
     if(s.drumsplit!=null)$("#drumsplit").checked=s.drumsplit;
+    if(s.sp){ const S=s.sp;
+      if(S.post!=null){$("#sp_post").value=S.post;$("#sp_post").dispatchEvent(new Event("input"));}
+      if(S.fit!=null)$("#sp_fit").checked=S.fit;
+      if(S.vel!=null){$("#sp_vel").value=S.vel;$("#sp_vel").dispatchEvent(new Event("input"));}
+      if(S.tail!=null){$("#sp_tail").value=S.tail;$("#sp_tail").dispatchEvent(new Event("input"));} }
     if(s.compare!=null)$("#compare").checked=s.compare;
     if(s.qdiv)$("#qdiv").value=s.qdiv; if(s.qstr)$("#qstr").value=s.qstr;
     ["vst_bass","vst_drums","vst_other","pre_bass","pre_drums","pre_other","prg_bass","prg_drums","prg_other"].forEach(k=>{ if(s[k]!=null&&$("#"+k))$("#"+k).value=s[k]; });
@@ -437,6 +459,7 @@ $("#go").onclick=async()=>{
   const rmPayload = reperfOn ? renderModes()
     : {drums:"keep", bass:"keep", other:"keep", guitar:"keep", piano:"keep"};
   fd.append("render_modes", JSON.stringify(rmPayload));
+  fd.append("sampler_opts", JSON.stringify(samplerOpts()));
   if($("#bpm").value.trim()) fd.append("bpm_override", $("#bpm").value.trim());
   if($("#keynote").value) fd.append("key_override", $("#keynote").value+" "+$("#keymode").value);
   const gains={}; ["vocals","drums","bass","other","guitar","piano"].forEach(p=>{gains[p]=parseFloat($("#g_"+p).value);});
